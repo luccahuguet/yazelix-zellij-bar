@@ -35,7 +35,7 @@ layout {
 }
 ```
 
-The packaged `yazelix_bar.kdl` already points at the package's `zjstatus.wasm` with a `file:` URL
+The packaged `yazelix_bar.kdl` already points at the package's `zjstatus.wasm` with a `file:` URL, and that wasm is installed from the repo's pinned `zjstatus` flake input
 
 ## Generic Boundary
 
@@ -113,7 +113,9 @@ AI usage widgets are first-class Yazelix value, but they are provider-driven:
 
 Workspace, cursor, Claude, Codex, OpenCode Go, CPU, and RAM widgets remain Yazelix integration widgets when they rely on Yazelix runtime helpers or launch-scoped cache files
 
-The full Yazelix runtime consumes this child repo for widget tray rendering, tab label formatting, and the integrated standalone package. The child repo vendors a pinned `zjstatus.wasm` so the package does not require manual artifact copying
+The full Yazelix runtime consumes this child repo for widget tray rendering, tab label formatting, and the integrated standalone package. The child repo packages `zjstatus.wasm` from its pinned `zjstatus` flake input so the package does not require manual artifact copying
+
+When the main Yazelix repo forwards `#yazelix_bar`, it may make this repo's `zjstatus` input follow Yazelix's own `zjstatus` pin. Standalone users get the pin recorded in this repo's `flake.lock`
 
 Use `share/yazelix_bar/examples/yazelix_runtime_widgets.kdl` only inside a full Yazelix runtime or after replacing the helper commands with your own paths. The generic standalone preset does not assume `yzx_control`, Nushell, Yazelix cache files, or provider usage tools exist
 
@@ -123,9 +125,10 @@ Zellij/zjstatus presets do not currently have a native include or variables laye
 
 ## Release Process
 
-Maintainers update the vendored zjstatus wasm deliberately, then validate:
+Maintainers update the pinned zjstatus input deliberately, then validate:
 
 ```bash
+nix flake lock --update-input zjstatus
 nix build .#yazelix_bar
 cargo test
 ```

@@ -7,6 +7,10 @@
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    zjstatus = {
+      url = "github:dj95/zjstatus";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -14,6 +18,7 @@
       self,
       nixpkgs,
       fenix,
+      zjstatus,
     }:
     let
       systems = [
@@ -71,6 +76,7 @@
         system: pkgs:
         let
           generator = generatorPackage system pkgs;
+          zjstatusPackage = zjstatus.packages.${system}.default;
         in
         pkgs.stdenvNoCC.mkDerivation {
           pname = "yazelix_bar";
@@ -83,9 +89,7 @@
               let
                 relativePath = pkgs.lib.removePrefix ((toString ./.) + "/") (toString path);
               in
-              relativePath == "assets"
-              || relativePath == "assets/zjstatus.wasm"
-              || relativePath == "presets"
+              relativePath == "presets"
               || relativePath == "presets/examples"
               || pkgs.lib.hasPrefix "presets/" relativePath
               || relativePath == "README.md";
@@ -97,7 +101,7 @@
           installPhase = ''
             runHook preInstall
 
-            install -Dm644 assets/zjstatus.wasm "$out/share/yazelix_bar/zjstatus.wasm"
+            install -Dm644 ${zjstatusPackage}/bin/zjstatus.wasm "$out/share/yazelix_bar/zjstatus.wasm"
             substitute presets/yazelix_bar.kdl "$out/share/yazelix_bar/yazelix_bar.kdl" \
               --replace-fail "__YAZELIX_BAR_ZJSTATUS_WASM__" "file:$out/share/yazelix_bar/zjstatus.wasm"
             install -Dm644 presets/yazelix_bar.kdl "$out/share/yazelix_bar/yazelix_bar.template.kdl"
