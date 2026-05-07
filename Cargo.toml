@@ -1,0 +1,17 @@
+[package]
+name = "yazelix_bar"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+description = "Standalone Zellij zjstatus bar preset from Yazelix"
+license = "Apache-2.0"
+repository = "https://github.com/luccahuguet/yazelix-bar"
+readme = "README.md"
+keywords = ["zellij", "zjstatus", "terminal", "tui", "yazelix"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "yazelix_bar_generate"
+path = "src/bin/yazelix_bar_generate.rs"
+
+[dependencies]
