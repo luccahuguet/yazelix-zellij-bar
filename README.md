@@ -115,6 +115,8 @@ Workspace, cursor, Claude, Codex, OpenCode Go, CPU, and RAM widgets remain Yazel
 
 The full Yazelix runtime consumes this child repo for widget tray rendering, tab label formatting, and the integrated standalone package. The child repo packages `zjstatus.wasm` from its pinned `zjstatus` flake input so the package does not require manual artifact copying
 
+The Rust API also renders Yazelix runtime command-widget definitions from resolved helper paths. Yazelix core still owns the runtime paths, status cache, provider refresh behavior, and session facts; this repo owns the generic zjstatus command-definition KDL shape so the main repo does not duplicate the bar renderer
+
 When the main Yazelix repo forwards `#yazelix_bar`, it may make this repo's `zjstatus` input follow Yazelix's own `zjstatus` pin. Standalone users get the pin recorded in this repo's `flake.lock`
 
 Use `share/yazelix_bar/examples/yazelix_runtime_widgets.kdl` only inside a full Yazelix runtime or after replacing the helper commands with your own paths. The generic standalone preset does not assume `yzx_control`, Nushell, Yazelix cache files, or provider usage tools exist

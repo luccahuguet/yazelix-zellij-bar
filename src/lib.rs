@@ -61,6 +61,13 @@ pub struct BarRenderData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct YazelixRuntimeCommandPaths {
+    pub nu_bin: String,
+    pub yzx_control_bin: String,
+    pub runtime_dir: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TabLabelFormats {
     pub tab_normal: &'static str,
     pub tab_normal_fullscreen: &'static str,
@@ -128,6 +135,81 @@ pub enum StandalonePresetError {
     DuplicateCommandName { name: String },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct YazelixRuntimeCommandWidget {
+    name: &'static str,
+    command: YazelixRuntimeCommand,
+    format: &'static str,
+    render_mode: Option<&'static str>,
+    interval: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum YazelixRuntimeCommand {
+    StatusCacheWidget(&'static str),
+    RuntimeNuScript(&'static str),
+    RuntimeNuConstantsVersion,
+}
+
+const YAZELIX_RUNTIME_COMMAND_WIDGETS: &[YazelixRuntimeCommandWidget] = &[
+    YazelixRuntimeCommandWidget {
+        name: "workspace",
+        command: YazelixRuntimeCommand::StatusCacheWidget("workspace"),
+        format: "#[fg=#00ff88,bold]{stdout}",
+        render_mode: None,
+        interval: "1",
+    },
+    YazelixRuntimeCommandWidget {
+        name: "cursor",
+        command: YazelixRuntimeCommand::StatusCacheWidget("cursor"),
+        format: "{stdout}",
+        render_mode: Some("dynamic"),
+        interval: "10",
+    },
+    YazelixRuntimeCommandWidget {
+        name: "claude_usage",
+        command: YazelixRuntimeCommand::StatusCacheWidget("claude_usage"),
+        format: "#[fg=#bb88ff,bold]{stdout}",
+        render_mode: None,
+        interval: "10",
+    },
+    YazelixRuntimeCommandWidget {
+        name: "codex_usage",
+        command: YazelixRuntimeCommand::StatusCacheWidget("codex_usage"),
+        format: "#[fg=#bb88ff,bold]{stdout}",
+        render_mode: None,
+        interval: "10",
+    },
+    YazelixRuntimeCommandWidget {
+        name: "opencode_go_usage",
+        command: YazelixRuntimeCommand::StatusCacheWidget("opencode_go_usage"),
+        format: "#[fg=#bb88ff,bold]{stdout}",
+        render_mode: None,
+        interval: "10",
+    },
+    YazelixRuntimeCommandWidget {
+        name: "cpu",
+        command: YazelixRuntimeCommand::RuntimeNuScript("configs/zellij/scripts/cpu_usage.nu"),
+        format: " #[fg=#ff6600][cpu {stdout}]",
+        render_mode: None,
+        interval: "5",
+    },
+    YazelixRuntimeCommandWidget {
+        name: "ram",
+        command: YazelixRuntimeCommand::RuntimeNuScript("configs/zellij/scripts/ram_usage.nu"),
+        format: " #[fg=#ff6600][ram {stdout}]",
+        render_mode: None,
+        interval: "5",
+    },
+    YazelixRuntimeCommandWidget {
+        name: "version",
+        command: YazelixRuntimeCommand::RuntimeNuConstantsVersion,
+        format: "{stdout}",
+        render_mode: None,
+        interval: "3600",
+    },
+];
+
 impl Default for StandalonePresetOptions {
     fn default() -> Self {
         Self {
@@ -157,6 +239,66 @@ impl StandaloneCommandWidget {
             command: command.into(),
             format: " #[fg=#00ff88,bold][{stdout}]".to_string(),
             interval: "30".to_string(),
+        }
+    }
+}
+
+pub fn render_yazelix_runtime_command_definitions(paths: &YazelixRuntimeCommandPaths) -> String {
+    YAZELIX_RUNTIME_COMMAND_WIDGETS
+        .iter()
+        .map(|widget| render_yazelix_runtime_command_definition(widget, paths))
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn render_yazelix_runtime_command_definition(
+    widget: &YazelixRuntimeCommandWidget,
+    paths: &YazelixRuntimeCommandPaths,
+) -> String {
+    let command = widget.command.render(paths);
+    let mut lines = vec![
+        format!(
+            "    command_{}_command \"{}\"",
+            widget.name,
+            escape_kdl_string(&command)
+        ),
+        format!(
+            "    command_{}_format \"{}\"",
+            widget.name,
+            escape_kdl_string(widget.format)
+        ),
+    ];
+    if let Some(render_mode) = widget.render_mode {
+        lines.push(format!(
+            "    command_{}_rendermode \"{}\"",
+            widget.name,
+            escape_kdl_string(render_mode)
+        ));
+    }
+    lines.push(format!(
+        "    command_{}_interval \"{}\"",
+        widget.name,
+        escape_kdl_string(widget.interval)
+    ));
+    lines.join("\n")
+}
+
+impl YazelixRuntimeCommand {
+    fn render(self, paths: &YazelixRuntimeCommandPaths) -> String {
+        match self {
+            Self::StatusCacheWidget(widget) => {
+                format!(
+                    "{} zellij status-cache-widget {widget}",
+                    paths.yzx_control_bin
+                )
+            }
+            Self::RuntimeNuScript(relative_path) => {
+                format!("{} {}/{relative_path}", paths.nu_bin, paths.runtime_dir)
+            }
+            Self::RuntimeNuConstantsVersion => format!(
+                "{} -c 'use {}/nushell/scripts/utils/constants.nu YAZELIX_VERSION; $YAZELIX_VERSION'",
+                paths.nu_bin, paths.runtime_dir
+            ),
         }
     }
 }
@@ -507,6 +649,33 @@ mod tests {
             rendered,
             "{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}"
         );
+    }
+
+    // Regression: the full Yazelix integration renderer owns generic zjstatus command-definition KDL while Yazelix core owns only resolved helper paths.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn renders_yazelix_runtime_command_definitions() {
+        let rendered = render_yazelix_runtime_command_definitions(&YazelixRuntimeCommandPaths {
+            nu_bin: "/runtime/bin/nu".to_string(),
+            yzx_control_bin: "/runtime/bin/yzx_control".to_string(),
+            runtime_dir: "/runtime".to_string(),
+        });
+
+        assert!(rendered.contains(
+            r#"command_workspace_command "/runtime/bin/yzx_control zellij status-cache-widget workspace""#
+        ));
+        assert!(rendered.contains(r##"command_workspace_format "#[fg=#00ff88,bold]{stdout}""##));
+        assert!(rendered.contains(r#"command_workspace_interval "1""#));
+        assert!(rendered.contains(
+            r#"command_cursor_command "/runtime/bin/yzx_control zellij status-cache-widget cursor""#
+        ));
+        assert!(rendered.contains(r#"command_cursor_rendermode "dynamic""#));
+        assert!(rendered.contains(
+            r#"command_cpu_command "/runtime/bin/nu /runtime/configs/zellij/scripts/cpu_usage.nu""#
+        ));
+        assert!(rendered.contains(
+            r#"command_version_command "/runtime/bin/nu -c 'use /runtime/nushell/scripts/utils/constants.nu YAZELIX_VERSION; $YAZELIX_VERSION'""#
+        ));
     }
 
     // Regression: dynamic command placeholders must preserve stable spacing around safe widgets.
