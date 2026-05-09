@@ -2736,7 +2736,15 @@ mod tests {
 
         std::fs::create_dir_all(bin_dir).unwrap();
         let path = bin_dir.join("tu");
-        std::fs::write(&path, body).unwrap();
+        let shell = std::env::var_os("PATH")
+            .and_then(|path| {
+                std::env::split_paths(&path)
+                    .map(|entry| entry.join("sh"))
+                    .find(|candidate| candidate.is_file())
+            })
+            .unwrap_or_else(|| std::path::PathBuf::from("/bin/sh"));
+        let script = body.replacen("#!/usr/bin/env sh", &format!("#!{}", shell.display()), 1);
+        std::fs::write(&path, script).unwrap();
         let mut permissions = std::fs::metadata(&path).unwrap().permissions();
         permissions.set_mode(0o755);
         std::fs::set_permissions(path, permissions).unwrap();
