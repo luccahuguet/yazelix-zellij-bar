@@ -66,6 +66,12 @@ pub struct YazelixRuntimeCommandPaths {
     pub yzx_control_bin: String,
     pub yazelix_bar_widget_bin: String,
     pub runtime_dir: String,
+    pub claude_usage_cache_path: String,
+    pub codex_usage_cache_path: String,
+    pub opencode_go_usage_cache_path: String,
+    pub claude_usage_display: String,
+    pub codex_usage_display: String,
+    pub opencode_go_usage_display: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -683,6 +689,9 @@ struct YazelixRuntimeCommandWidget {
 enum YazelixRuntimeCommand {
     StatusCacheWidget(&'static str),
     BarWidget(&'static str),
+    ClaudeUsage,
+    CodexUsage,
+    OpenCodeGoUsage,
     RuntimeNuConstantsVersion,
 }
 
@@ -696,28 +705,28 @@ const YAZELIX_RUNTIME_COMMAND_WIDGETS: &[YazelixRuntimeCommandWidget] = &[
     },
     YazelixRuntimeCommandWidget {
         name: "cursor",
-        command: YazelixRuntimeCommand::StatusCacheWidget("cursor"),
+        command: YazelixRuntimeCommand::BarWidget("cursor"),
         format: "{stdout}",
         render_mode: Some("dynamic"),
         interval: "10",
     },
     YazelixRuntimeCommandWidget {
         name: "claude_usage",
-        command: YazelixRuntimeCommand::StatusCacheWidget("claude_usage"),
+        command: YazelixRuntimeCommand::ClaudeUsage,
         format: "#[fg=#bb88ff,bold]{stdout}",
         render_mode: None,
         interval: "10",
     },
     YazelixRuntimeCommandWidget {
         name: "codex_usage",
-        command: YazelixRuntimeCommand::StatusCacheWidget("codex_usage"),
+        command: YazelixRuntimeCommand::CodexUsage,
         format: "#[fg=#bb88ff,bold]{stdout}",
         render_mode: None,
         interval: "10",
     },
     YazelixRuntimeCommandWidget {
         name: "opencode_go_usage",
-        command: YazelixRuntimeCommand::StatusCacheWidget("opencode_go_usage"),
+        command: YazelixRuntimeCommand::OpenCodeGoUsage,
         format: "#[fg=#bb88ff,bold]{stdout}",
         render_mode: None,
         interval: "10",
@@ -828,6 +837,24 @@ impl YazelixRuntimeCommand {
                 )
             }
             Self::BarWidget(widget) => format!("{} {widget}", paths.yazelix_bar_widget_bin),
+            Self::ClaudeUsage => format!(
+                "{} claude_usage --cache {} --display {}",
+                paths.yazelix_bar_widget_bin,
+                paths.claude_usage_cache_path,
+                paths.claude_usage_display
+            ),
+            Self::CodexUsage => format!(
+                "{} codex_usage --cache {} --display {}",
+                paths.yazelix_bar_widget_bin,
+                paths.codex_usage_cache_path,
+                paths.codex_usage_display
+            ),
+            Self::OpenCodeGoUsage => format!(
+                "{} opencode_go_usage --cache {} --display {}",
+                paths.yazelix_bar_widget_bin,
+                paths.opencode_go_usage_cache_path,
+                paths.opencode_go_usage_display
+            ),
             Self::RuntimeNuConstantsVersion => format!(
                 "{} -c 'use {}/nushell/scripts/utils/constants.nu YAZELIX_VERSION; $YAZELIX_VERSION'",
                 paths.nu_bin, paths.runtime_dir
@@ -2763,6 +2790,13 @@ mod tests {
             yzx_control_bin: "/runtime/bin/yzx_control".to_string(),
             yazelix_bar_widget_bin: "/runtime/bin/yazelix_bar_widget".to_string(),
             runtime_dir: "/runtime".to_string(),
+            claude_usage_cache_path: "/state/agent_usage/claude_usage_cache_v1.json".to_string(),
+            codex_usage_cache_path: "/state/agent_usage/codex_usage_cache_v2.json".to_string(),
+            opencode_go_usage_cache_path: "/state/agent_usage/opencode_go_usage_cache_v1.json"
+                .to_string(),
+            claude_usage_display: "both".to_string(),
+            codex_usage_display: "quota".to_string(),
+            opencode_go_usage_display: "both".to_string(),
         });
 
         assert!(rendered.contains(
@@ -2770,10 +2804,19 @@ mod tests {
         ));
         assert!(rendered.contains(r##"command_workspace_format "#[fg=#00ff88,bold]{stdout}""##));
         assert!(rendered.contains(r#"command_workspace_interval "1""#));
-        assert!(rendered.contains(
-            r#"command_cursor_command "/runtime/bin/yzx_control zellij status-cache-widget cursor""#
-        ));
+        assert!(
+            rendered.contains(r#"command_cursor_command "/runtime/bin/yazelix_bar_widget cursor""#)
+        );
         assert!(rendered.contains(r#"command_cursor_rendermode "dynamic""#));
+        assert!(rendered.contains(
+            r#"command_claude_usage_command "/runtime/bin/yazelix_bar_widget claude_usage --cache /state/agent_usage/claude_usage_cache_v1.json --display both""#
+        ));
+        assert!(rendered.contains(
+            r#"command_codex_usage_command "/runtime/bin/yazelix_bar_widget codex_usage --cache /state/agent_usage/codex_usage_cache_v2.json --display quota""#
+        ));
+        assert!(rendered.contains(
+            r#"command_opencode_go_usage_command "/runtime/bin/yazelix_bar_widget opencode_go_usage --cache /state/agent_usage/opencode_go_usage_cache_v1.json --display both""#
+        ));
         assert!(rendered.contains(r#"command_cpu_command "/runtime/bin/yazelix_bar_widget cpu""#));
         assert!(rendered.contains(r#"command_ram_command "/runtime/bin/yazelix_bar_widget ram""#));
         assert!(rendered.contains(
