@@ -181,6 +181,194 @@ pub struct WindowedAgentUsageFacts {
     pub weekly_reset_at_unix_seconds: Option<u64>,
     pub five_hour_window_seconds: Option<u64>,
     pub weekly_window_seconds: Option<u64>,
+    pub error: Option<String>,
+}
+
+impl WindowedAgentUsageFacts {
+    fn has_tokens(&self) -> bool {
+        self.five_hour_tokens.is_some()
+            || self.weekly_tokens.is_some()
+            || self.monthly_tokens.is_some()
+    }
+
+    fn has_quota(&self) -> bool {
+        self.five_hour_remaining_percent.is_some()
+            || self.weekly_remaining_percent.is_some()
+            || self.monthly_remaining_percent.is_some()
+    }
+
+    fn is_empty(&self) -> bool {
+        !self.has_tokens() && !self.has_quota()
+    }
+}
+
+pub const CODEX_USAGE_CACHE_SCHEMA_VERSION: i64 = 2;
+pub const CODEX_USAGE_LOCK_STALE_AFTER_SECONDS: u64 = 300;
+const AGENT_USAGE_MINUTE_SECONDS: u64 = 60;
+
+#[derive(Debug, Clone, Copy)]
+pub struct CodexUsageWidgetOptions<'a> {
+    pub cache_path: &'a std::path::Path,
+    pub path_var: Option<&'a std::ffi::OsStr>,
+    pub now_unix_seconds: u64,
+    pub max_age_seconds: u64,
+    pub error_backoff_seconds: u64,
+    pub timeout: std::time::Duration,
+    pub display: AgentUsageDisplay,
+}
+
+pub fn codex_usage_widget_text(options: CodexUsageWidgetOptions<'_>) -> Result<String, String> {
+    refresh_codex_usage_shared_cache(
+        options.cache_path,
+        options.path_var,
+        options.now_unix_seconds,
+        options.max_age_seconds,
+        options.error_backoff_seconds,
+        options.timeout,
+    )?;
+    Ok(render_codex_usage_widget_from_cache(
+        options.cache_path,
+        options.display,
+    ))
+}
+
+pub fn render_codex_usage_widget_from_cache(
+    path: &std::path::Path,
+    display: AgentUsageDisplay,
+) -> String {
+    read_codex_usage_shared_cache_value(path)
+        .and_then(|cache| cache.get("codex").cloned())
+        .map(|entry| {
+            render_codex_usage_status_widget(
+                &windowed_usage_facts_from_cache_entry(&entry),
+                display,
+            )
+        })
+        .unwrap_or_default()
+}
+
+pub fn read_codex_usage_shared_cache_value(path: &std::path::Path) -> Option<serde_json::Value> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let cache: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    if cache
+        .get("schema_version")
+        .and_then(serde_json::Value::as_i64)
+        != Some(CODEX_USAGE_CACHE_SCHEMA_VERSION)
+    {
+        return None;
+    }
+    Some(cache)
+}
+
+pub fn refresh_codex_usage_shared_cache(
+    shared_path: &std::path::Path,
+    path_var: Option<&std::ffi::OsStr>,
+    now: u64,
+    max_age_seconds: u64,
+    error_backoff_seconds: u64,
+    timeout: std::time::Duration,
+) -> Result<bool, String> {
+    if codex_usage_shared_cache_is_fresh(shared_path, now, max_age_seconds)
+        || codex_usage_shared_cache_is_backing_off(shared_path, now)
+    {
+        return Ok(false);
+    }
+    let Some(_lock) = try_acquire_codex_usage_cache_lock(shared_path, now)? else {
+        return Ok(false);
+    };
+    if codex_usage_shared_cache_is_fresh(shared_path, now, max_age_seconds)
+        || codex_usage_shared_cache_is_backing_off(shared_path, now)
+    {
+        return Ok(false);
+    }
+
+    let quota_backoff_until = codex_usage_quota_backoff_until(shared_path, now);
+    let previous_facts = read_codex_usage_shared_cache_value(shared_path)
+        .and_then(|cache| cache.get("codex").cloned())
+        .map(|entry| windowed_usage_facts_from_cache_entry(&entry));
+    let mut facts = collect_codex_usage_facts(path_var, timeout, quota_backoff_until.is_none());
+    let quota_probe_failed = quota_backoff_until.is_none() && !facts.has_quota();
+    preserve_previous_codex_window_tokens(&mut facts, previous_facts.as_ref());
+    preserve_previous_codex_window_quota(&mut facts, previous_facts.as_ref(), now);
+
+    let mut entry = serde_json::Map::new();
+    entry.insert(
+        "updated_at_unix_seconds".to_string(),
+        serde_json::json!(now),
+    );
+    insert_u64(&mut entry, "five_hour_tokens", facts.five_hour_tokens);
+    insert_u64(&mut entry, "weekly_tokens", facts.weekly_tokens);
+    insert_u64(
+        &mut entry,
+        "five_hour_remaining_percent",
+        facts.five_hour_remaining_percent,
+    );
+    insert_u64(
+        &mut entry,
+        "weekly_remaining_percent",
+        facts.weekly_remaining_percent,
+    );
+    insert_u64(
+        &mut entry,
+        "five_hour_reset_at_unix_seconds",
+        facts.five_hour_reset_at_unix_seconds,
+    );
+    insert_u64(
+        &mut entry,
+        "weekly_reset_at_unix_seconds",
+        facts.weekly_reset_at_unix_seconds,
+    );
+    insert_u64(
+        &mut entry,
+        "five_hour_window_seconds",
+        facts.five_hour_window_seconds,
+    );
+    insert_u64(
+        &mut entry,
+        "weekly_window_seconds",
+        facts.weekly_window_seconds,
+    );
+    if let Some(error) = facts.error.as_deref().filter(|value| !value.is_empty()) {
+        entry.insert("error".to_string(), serde_json::json!(error));
+        if facts.is_empty() {
+            entry.insert(
+                "backoff_until_unix_seconds".to_string(),
+                serde_json::json!(now.saturating_add(error_backoff_seconds)),
+            );
+        }
+    }
+    if let Some(backoff_until) = quota_backoff_until {
+        entry.insert(
+            "quota_backoff_until_unix_seconds".to_string(),
+            serde_json::json!(backoff_until),
+        );
+    } else if facts.has_tokens() && (quota_probe_failed || !facts.has_quota()) {
+        entry.insert(
+            "quota_backoff_until_unix_seconds".to_string(),
+            serde_json::json!(now.saturating_add(error_backoff_seconds)),
+        );
+    }
+    let status = if facts.is_empty() {
+        "error"
+    } else if facts.has_tokens()
+        && facts.has_quota()
+        && !quota_probe_failed
+        && quota_backoff_until.is_none()
+    {
+        "ok"
+    } else {
+        "partial"
+    };
+    entry.insert("status".to_string(), serde_json::json!(status));
+
+    write_json_value_atomic(
+        shared_path,
+        &serde_json::json!({
+            "schema_version": CODEX_USAGE_CACHE_SCHEMA_VERSION,
+            "codex": serde_json::Value::Object(entry),
+        }),
+    )?;
+    Ok(true)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -739,6 +927,558 @@ fn cursor_fact_file_pairs(raw: &str) -> impl Iterator<Item = (String, String)> +
     })
 }
 
+fn insert_u64(
+    entry: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    value: Option<u64>,
+) {
+    if let Some(value) = value {
+        entry.insert(key.to_string(), serde_json::json!(value));
+    }
+}
+
+fn windowed_usage_facts_from_cache_entry(entry: &serde_json::Value) -> WindowedAgentUsageFacts {
+    WindowedAgentUsageFacts {
+        updated_at_unix_seconds: entry
+            .get("updated_at_unix_seconds")
+            .and_then(serde_json::Value::as_u64),
+        five_hour_tokens: entry
+            .get("five_hour_tokens")
+            .and_then(serde_json::Value::as_u64),
+        weekly_tokens: entry
+            .get("weekly_tokens")
+            .and_then(serde_json::Value::as_u64),
+        monthly_tokens: entry
+            .get("monthly_tokens")
+            .and_then(serde_json::Value::as_u64),
+        five_hour_remaining_percent: entry
+            .get("five_hour_remaining_percent")
+            .and_then(serde_json::Value::as_u64),
+        weekly_remaining_percent: entry
+            .get("weekly_remaining_percent")
+            .and_then(serde_json::Value::as_u64),
+        monthly_remaining_percent: entry
+            .get("monthly_remaining_percent")
+            .and_then(serde_json::Value::as_u64),
+        five_hour_reset_at_unix_seconds: entry
+            .get("five_hour_reset_at_unix_seconds")
+            .and_then(serde_json::Value::as_u64),
+        weekly_reset_at_unix_seconds: entry
+            .get("weekly_reset_at_unix_seconds")
+            .and_then(serde_json::Value::as_u64),
+        five_hour_window_seconds: entry
+            .get("five_hour_window_seconds")
+            .and_then(serde_json::Value::as_u64),
+        weekly_window_seconds: entry
+            .get("weekly_window_seconds")
+            .and_then(serde_json::Value::as_u64),
+        error: entry
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+    }
+}
+
+pub fn codex_usage_shared_cache_is_fresh(
+    path: &std::path::Path,
+    now: u64,
+    max_age_seconds: u64,
+) -> bool {
+    let Some(cache) = read_codex_usage_shared_cache_value(path) else {
+        return false;
+    };
+    cache
+        .get("codex")
+        .and_then(|entry| entry.get("updated_at_unix_seconds"))
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|updated_at| {
+            now.saturating_sub(updated_at) < max_age_seconds
+                && cache
+                    .get("codex")
+                    .map(windowed_usage_facts_from_cache_entry)
+                    .is_some_and(|facts| codex_usage_facts_are_complete(&facts))
+        })
+}
+
+pub fn codex_usage_shared_cache_is_backing_off(path: &std::path::Path, now: u64) -> bool {
+    read_codex_usage_shared_cache_value(path)
+        .and_then(|cache| {
+            let entry = cache.get("codex")?;
+            let facts = windowed_usage_facts_from_cache_entry(entry);
+            if !facts.is_empty() && !codex_usage_facts_are_complete(&facts) {
+                return None;
+            }
+            entry.get("backoff_until_unix_seconds")?.as_u64()
+        })
+        .is_some_and(|backoff_until| now < backoff_until)
+}
+
+pub fn codex_usage_quota_backoff_until(path: &std::path::Path, now: u64) -> Option<u64> {
+    read_codex_usage_shared_cache_value(path)
+        .and_then(|cache| {
+            cache
+                .get("codex")?
+                .get("quota_backoff_until_unix_seconds")?
+                .as_u64()
+        })
+        .filter(|backoff_until| now < *backoff_until)
+}
+
+fn codex_usage_facts_are_complete(facts: &WindowedAgentUsageFacts) -> bool {
+    facts.five_hour_tokens.is_some()
+        && facts.weekly_tokens.is_some()
+        && facts.five_hour_remaining_percent.is_some()
+        && facts.weekly_remaining_percent.is_some()
+        && facts.five_hour_reset_at_unix_seconds.is_some()
+        && facts.weekly_reset_at_unix_seconds.is_some()
+        && facts.five_hour_window_seconds.is_some()
+        && facts.weekly_window_seconds.is_some()
+}
+
+struct AgentUsageCacheLock {
+    path: std::path::PathBuf,
+}
+
+impl Drop for AgentUsageCacheLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir(&self.path);
+    }
+}
+
+fn try_acquire_codex_usage_cache_lock(
+    shared_path: &std::path::Path,
+    now: u64,
+) -> Result<Option<AgentUsageCacheLock>, String> {
+    try_acquire_agent_usage_cache_lock(
+        shared_path.with_file_name(format!(
+            ".codex_usage_cache_v{CODEX_USAGE_CACHE_SCHEMA_VERSION}.lock"
+        )),
+        now,
+        CODEX_USAGE_LOCK_STALE_AFTER_SECONDS,
+    )
+}
+
+fn try_acquire_agent_usage_cache_lock(
+    lock_path: std::path::PathBuf,
+    now: u64,
+    stale_after_seconds: u64,
+) -> Result<Option<AgentUsageCacheLock>, String> {
+    if let Some(parent) = lock_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create usage cache lock parent: {error}"))?;
+    }
+    match std::fs::create_dir(&lock_path) {
+        Ok(()) => Ok(Some(AgentUsageCacheLock { path: lock_path })),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            if agent_usage_cache_lock_is_stale(&lock_path, now, stale_after_seconds) {
+                let _ = std::fs::remove_dir(&lock_path);
+                return match std::fs::create_dir(&lock_path) {
+                    Ok(()) => Ok(Some(AgentUsageCacheLock { path: lock_path })),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
+                    Err(error) => Err(format!("failed to acquire usage cache lock: {error}")),
+                };
+            }
+            Ok(None)
+        }
+        Err(error) => Err(format!("failed to acquire usage cache lock: {error}")),
+    }
+}
+
+fn agent_usage_cache_lock_is_stale(
+    lock_path: &std::path::Path,
+    now: u64,
+    stale_after_seconds: u64,
+) -> bool {
+    std::fs::metadata(lock_path)
+        .ok()
+        .and_then(|metadata| metadata.modified().ok())
+        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| now.saturating_sub(duration.as_secs()) > stale_after_seconds)
+        .unwrap_or(false)
+}
+
+fn preserve_previous_codex_window_tokens(
+    facts: &mut WindowedAgentUsageFacts,
+    previous: Option<&WindowedAgentUsageFacts>,
+) {
+    let Some(previous) = previous else {
+        return;
+    };
+    if !codex_usage_facts_are_complete(previous) {
+        return;
+    }
+    if facts.five_hour_tokens.is_none()
+        && tokenusage_window_identity_matches(
+            facts.five_hour_reset_at_unix_seconds,
+            facts.five_hour_window_seconds,
+            previous.five_hour_reset_at_unix_seconds,
+            previous.five_hour_window_seconds,
+        )
+    {
+        facts.five_hour_tokens = previous.five_hour_tokens;
+    }
+    if facts.weekly_tokens.is_none()
+        && tokenusage_window_identity_matches(
+            facts.weekly_reset_at_unix_seconds,
+            facts.weekly_window_seconds,
+            previous.weekly_reset_at_unix_seconds,
+            previous.weekly_window_seconds,
+        )
+    {
+        facts.weekly_tokens = previous.weekly_tokens;
+    }
+}
+
+fn preserve_previous_codex_window_quota(
+    facts: &mut WindowedAgentUsageFacts,
+    previous: Option<&WindowedAgentUsageFacts>,
+    now: u64,
+) {
+    let Some(previous) = previous else {
+        return;
+    };
+    if facts.five_hour_remaining_percent.is_none()
+        && previous_codex_quota_window_is_still_valid(
+            previous.five_hour_reset_at_unix_seconds,
+            previous.five_hour_window_seconds,
+            now,
+        )
+    {
+        facts.five_hour_remaining_percent = previous.five_hour_remaining_percent;
+        facts.five_hour_reset_at_unix_seconds = previous.five_hour_reset_at_unix_seconds;
+        facts.five_hour_window_seconds = previous.five_hour_window_seconds;
+    }
+    if facts.weekly_remaining_percent.is_none()
+        && previous_codex_quota_window_is_still_valid(
+            previous.weekly_reset_at_unix_seconds,
+            previous.weekly_window_seconds,
+            now,
+        )
+    {
+        facts.weekly_remaining_percent = previous.weekly_remaining_percent;
+        facts.weekly_reset_at_unix_seconds = previous.weekly_reset_at_unix_seconds;
+        facts.weekly_window_seconds = previous.weekly_window_seconds;
+    }
+}
+
+fn previous_codex_quota_window_is_still_valid(
+    reset_at_unix_seconds: Option<u64>,
+    window_seconds: Option<u64>,
+    now: u64,
+) -> bool {
+    reset_at_unix_seconds.is_some_and(|reset_at| now < reset_at)
+        && window_seconds.is_some_and(|seconds| seconds > 0)
+}
+
+fn tokenusage_window_identity_matches(
+    reset_at: Option<u64>,
+    window_seconds: Option<u64>,
+    previous_reset_at: Option<u64>,
+    previous_window_seconds: Option<u64>,
+) -> bool {
+    reset_at.is_some()
+        && window_seconds.is_some()
+        && reset_at == previous_reset_at
+        && window_seconds == previous_window_seconds
+}
+
+fn collect_codex_usage_facts(
+    path_var: Option<&std::ffi::OsStr>,
+    timeout: std::time::Duration,
+    include_quota: bool,
+) -> WindowedAgentUsageFacts {
+    let Some(path_var) = path_var else {
+        return WindowedAgentUsageFacts {
+            error: Some("missing PATH".to_string()),
+            ..WindowedAgentUsageFacts::default()
+        };
+    };
+    let Some(binary_path) = find_command_in_path_var(path_var, "tu") else {
+        return WindowedAgentUsageFacts {
+            error: Some("missing tu".to_string()),
+            ..WindowedAgentUsageFacts::default()
+        };
+    };
+
+    let mut facts = WindowedAgentUsageFacts::default();
+    match run_tokenusage_json_command(&binary_path, codex_active_block_args().as_slice(), timeout) {
+        Ok(Some(value)) => {
+            facts.five_hour_tokens = tokenusage_active_block_tokens_from_json(&value)
+        }
+        Ok(None) => facts.error = Some("active block unavailable".to_string()),
+        Err(error) => facts.error = Some(error),
+    }
+    match run_tokenusage_json_command(&binary_path, codex_weekly_args().as_slice(), timeout) {
+        Ok(Some(value)) => facts.weekly_tokens = tokenusage_weekly_tokens_from_json(&value),
+        Ok(None) => {
+            if facts.error.is_none() {
+                facts.error = Some("weekly usage unavailable".to_string());
+            }
+        }
+        Err(error) => {
+            if facts.error.is_none() {
+                facts.error = Some(error);
+            }
+        }
+    }
+    if include_quota {
+        match run_tokenusage_json_command(
+            &binary_path,
+            codex_official_limits_args().as_slice(),
+            timeout,
+        ) {
+            Ok(Some(value)) => {
+                let quota = codex_quota_from_official_json(&value);
+                facts.five_hour_remaining_percent = quota.five_hour_remaining_percent;
+                facts.weekly_remaining_percent = quota.weekly_remaining_percent;
+                facts.five_hour_reset_at_unix_seconds = quota.five_hour_reset_at_unix_seconds;
+                facts.weekly_reset_at_unix_seconds = quota.weekly_reset_at_unix_seconds;
+                facts.five_hour_window_seconds = quota.five_hour_window_seconds;
+                facts.weekly_window_seconds = quota.weekly_window_seconds;
+                if !quota.has_quota() && facts.error.is_none() {
+                    facts.error = Some("quota unavailable".to_string());
+                }
+            }
+            Ok(None) => {
+                if facts.error.is_none() {
+                    facts.error = Some("quota unavailable".to_string());
+                }
+            }
+            Err(error) => {
+                if facts.error.is_none() {
+                    facts.error = Some(error);
+                }
+            }
+        }
+    }
+    facts
+}
+
+fn codex_active_block_args() -> Vec<&'static str> {
+    vec![
+        "blocks",
+        "--active",
+        "--json",
+        "--offline",
+        "--no-claude",
+        "--no-antigravity",
+    ]
+}
+
+fn codex_weekly_args() -> Vec<&'static str> {
+    vec![
+        "weekly",
+        "--json",
+        "--offline",
+        "--no-claude",
+        "--no-antigravity",
+        "--order",
+        "desc",
+    ]
+}
+
+fn codex_official_limits_args() -> Vec<&'static str> {
+    vec![
+        "blocks",
+        "--active",
+        "--json",
+        "--official-limits",
+        "--no-claude",
+        "--no-antigravity",
+    ]
+}
+
+fn run_tokenusage_json_command(
+    binary_path: &std::path::Path,
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> Result<Option<serde_json::Value>, String> {
+    let output =
+        run_agent_usage_command_with_timeout(binary_path, args, timeout).map_err(|error| {
+            format!(
+                "failed to run tokenusage command {}: {error}",
+                binary_path.display()
+            )
+        })?;
+    let Some(output) = output else {
+        return Ok(None);
+    };
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let Some(json_raw) = extract_json_object(&stdout) else {
+        return Ok(None);
+    };
+    serde_json::from_str::<serde_json::Value>(json_raw)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
+fn run_agent_usage_command_with_timeout(
+    binary_path: &std::path::Path,
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> std::io::Result<Option<std::process::Output>> {
+    let mut child = std::process::Command::new(binary_path)
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    let started = std::time::Instant::now();
+    loop {
+        if child.try_wait()?.is_some() {
+            return child.wait_with_output().map(Some);
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(None);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+}
+
+fn find_command_in_path_var(
+    path_var: &std::ffi::OsStr,
+    command_name: &str,
+) -> Option<std::path::PathBuf> {
+    std::env::split_paths(path_var)
+        .map(|entry| entry.join(command_name))
+        .find(|candidate| candidate.is_file())
+}
+
+fn tokenusage_active_block_tokens_from_json(value: &serde_json::Value) -> Option<u64> {
+    value
+        .get("blocks")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|blocks| {
+            blocks
+                .iter()
+                .find(|block| {
+                    block
+                        .get("isActive")
+                        .or_else(|| block.get("is_active"))
+                        .and_then(serde_json::Value::as_bool)
+                        == Some(true)
+                })
+                .or_else(|| blocks.first())
+        })
+        .and_then(|block| {
+            first_u64_at(
+                block,
+                &[
+                    &["totals", "total_tokens"],
+                    &["totals", "totalTokens"],
+                    &["total_tokens"],
+                    &["totalTokens"],
+                ],
+            )
+        })
+}
+
+fn tokenusage_weekly_tokens_from_json(value: &serde_json::Value) -> Option<u64> {
+    value
+        .get("weekly")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|rows| rows.first())
+        .and_then(|row| {
+            first_u64_at(
+                row,
+                &[
+                    &["totals", "total_tokens"],
+                    &["totals", "totalTokens"],
+                    &["total_tokens"],
+                    &["totalTokens"],
+                ],
+            )
+        })
+}
+
+fn codex_quota_from_official_json(value: &serde_json::Value) -> WindowedAgentUsageFacts {
+    let Some(official) = value.get("official_codex") else {
+        return WindowedAgentUsageFacts::default();
+    };
+    WindowedAgentUsageFacts {
+        five_hour_remaining_percent: official
+            .get("primary_used_percent")
+            .and_then(serde_json::Value::as_f64)
+            .map(remaining_percent_from_used),
+        weekly_remaining_percent: official
+            .get("secondary_used_percent")
+            .and_then(serde_json::Value::as_f64)
+            .map(remaining_percent_from_used),
+        five_hour_reset_at_unix_seconds: official
+            .get("primary_resets_at")
+            .and_then(serde_json::Value::as_u64),
+        weekly_reset_at_unix_seconds: official
+            .get("secondary_resets_at")
+            .and_then(serde_json::Value::as_u64),
+        five_hour_window_seconds: official
+            .get("primary_window_mins")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(window_minutes_to_seconds),
+        weekly_window_seconds: official
+            .get("secondary_window_mins")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(window_minutes_to_seconds),
+        ..WindowedAgentUsageFacts::default()
+    }
+}
+
+fn window_minutes_to_seconds(minutes: u64) -> Option<u64> {
+    minutes
+        .checked_mul(AGENT_USAGE_MINUTE_SECONDS)
+        .filter(|seconds| *seconds > 0)
+}
+
+fn remaining_percent_from_used(used_percent: f64) -> u64 {
+    (100.0 - used_percent).clamp(0.0, 100.0).round() as u64
+}
+
+fn extract_json_object(raw: &str) -> Option<&str> {
+    let start = raw.find('{')?;
+    let end = raw.rfind('}')?;
+    (start <= end).then_some(&raw[start..=end])
+}
+
+fn first_u64_at(value: &serde_json::Value, paths: &[&[&str]]) -> Option<u64> {
+    paths
+        .iter()
+        .find_map(|path| nested_value(value, path)?.as_u64())
+}
+
+fn nested_value<'a>(value: &'a serde_json::Value, path: &[&str]) -> Option<&'a serde_json::Value> {
+    let mut current = value;
+    for segment in path {
+        current = current.get(*segment)?;
+    }
+    Some(current)
+}
+
+fn write_json_value_atomic(
+    path: &std::path::Path,
+    value: &serde_json::Value,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create usage cache parent: {error}"))?;
+    }
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("agent_usage_cache");
+    let tmp_path = path.with_file_name(format!(".{file_name}.tmp-{}", std::process::id()));
+    let raw = serde_json::to_vec(value).map_err(|error| error.to_string())?;
+    std::fs::write(&tmp_path, raw)
+        .map_err(|error| format!("failed to write temporary usage cache: {error}"))?;
+    std::fs::rename(&tmp_path, path)
+        .map_err(|error| format!("failed to install usage cache: {error}"))?;
+    Ok(())
+}
+
 pub fn render_codex_usage_status_widget(
     facts: &WindowedAgentUsageFacts,
     display: AgentUsageDisplay,
@@ -1138,6 +1878,33 @@ mod tests {
         }
     }
 
+    fn temp_test_dir(name: &str) -> std::path::PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "yazelix_bar_{name}_{}_{}",
+            std::process::id(),
+            unique
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    fn write_tokenusage_provider_script(bin_dir: &std::path::Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::create_dir_all(bin_dir).unwrap();
+        let path = bin_dir.join("tu");
+        std::fs::write(&path, body).unwrap();
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
     // Defends: the bar registry preserves the existing zjstatus widgets and exact segment syntax.
     // Strength: defect=2 behavior=2 resilience=1 cost=1 uniqueness=2 total=8/10
     #[test]
@@ -1429,6 +2196,99 @@ MemAvailable:   250000 kB
             ),
             ""
         );
+    }
+
+    // Defends: the standalone Codex command owns tokenusage probing, cache writes, reset-window labels, and rendering without Yazelix runtime paths.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[cfg(unix)]
+    #[test]
+    fn codex_usage_widget_refreshes_shared_cache_from_tokenusage_provider() {
+        let temp = temp_test_dir("codex_usage_refresh");
+        let bin_dir = temp.join("bin");
+        write_tokenusage_provider_script(
+            &bin_dir,
+            r#"#!/usr/bin/env sh
+if [ "$1" = "blocks" ] && [ "$4" = "--official-limits" ]; then
+  printf '%s\n' '{"official_codex":{"primary_used_percent":51.0,"secondary_used_percent":20.0,"primary_resets_at":8200,"primary_window_mins":300,"secondary_resets_at":260200,"secondary_window_mins":10080}}'
+elif [ "$1" = "blocks" ]; then
+  printf '%s\n' '{"blocks":[{"isActive":true,"totals":{"total_tokens":138456789}}]}'
+elif [ "$1" = "weekly" ]; then
+  printf '%s\n' '{"weekly":[{"totals":{"total_tokens":1337000000}}]}'
+else
+  exit 1
+fi
+"#,
+        );
+        let cache_path = temp.join("agent_usage").join("codex_usage_cache_v2.json");
+
+        let text = codex_usage_widget_text(CodexUsageWidgetOptions {
+            cache_path: &cache_path,
+            path_var: Some(bin_dir.as_os_str()),
+            now_unix_seconds: 1_000,
+            max_age_seconds: 600,
+            error_backoff_seconds: 1_800,
+            timeout: std::time::Duration::from_secs(1),
+            display: AgentUsageDisplay::Both,
+        })
+        .unwrap();
+
+        assert_eq!(text, " [codex 3h/5h 138M 49% · 4d/7d 1.34B 80%]");
+        assert_eq!(
+            read_codex_usage_shared_cache_value(&cache_path)
+                .unwrap()
+                .pointer("/codex/status")
+                .and_then(serde_json::Value::as_str),
+            Some("ok")
+        );
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // Defends: Codex cache freshness and error backoff are enforced by yazelix-bar, not by Yazelix wrappers.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn codex_usage_shared_cache_respects_freshness_and_backoff() {
+        let temp = temp_test_dir("codex_usage_backoff");
+        let cache_path = temp.join("codex_usage_cache_v2.json");
+        write_json_value_atomic(
+            &cache_path,
+            &serde_json::json!({
+                "schema_version": CODEX_USAGE_CACHE_SCHEMA_VERSION,
+                "codex": {
+                    "updated_at_unix_seconds": 1_000u64,
+                    "five_hour_tokens": 138_456_789u64,
+                    "weekly_tokens": 1_337_000_000u64,
+                    "five_hour_remaining_percent": 49u64,
+                    "weekly_remaining_percent": 80u64,
+                    "five_hour_reset_at_unix_seconds": 8_200u64,
+                    "weekly_reset_at_unix_seconds": 260_200u64,
+                    "five_hour_window_seconds": 18_000u64,
+                    "weekly_window_seconds": 604_800u64,
+                    "status": "ok"
+                }
+            }),
+        )
+        .unwrap();
+
+        assert!(codex_usage_shared_cache_is_fresh(&cache_path, 1_100, 600));
+        assert!(!codex_usage_shared_cache_is_fresh(&cache_path, 1_700, 600));
+
+        write_json_value_atomic(
+            &cache_path,
+            &serde_json::json!({
+                "schema_version": CODEX_USAGE_CACHE_SCHEMA_VERSION,
+                "codex": {
+                    "updated_at_unix_seconds": 1_700u64,
+                    "error": "missing tu",
+                    "backoff_until_unix_seconds": 2_000u64,
+                    "status": "error"
+                }
+            }),
+        )
+        .unwrap();
+
+        assert!(codex_usage_shared_cache_is_backing_off(&cache_path, 1_999));
+        assert!(!codex_usage_shared_cache_is_backing_off(&cache_path, 2_000));
+        let _ = std::fs::remove_dir_all(temp);
     }
 
     // Defends: generic provider usage rendering covers Claude-style configured windows without Yazelix cache paths.
