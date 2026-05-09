@@ -136,6 +136,45 @@ pub struct CursorWidgetFacts {
     pub secondary_color: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentUsageDisplay {
+    Both,
+    Token,
+    Quota,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentUsagePeriod {
+    FiveHour,
+    Weekly,
+    Monthly,
+}
+
+impl AgentUsagePeriod {
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::FiveHour => "5h",
+            Self::Weekly => "wk",
+            Self::Monthly => "mo",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WindowedAgentUsageFacts {
+    pub updated_at_unix_seconds: Option<u64>,
+    pub five_hour_tokens: Option<u64>,
+    pub weekly_tokens: Option<u64>,
+    pub monthly_tokens: Option<u64>,
+    pub five_hour_remaining_percent: Option<u64>,
+    pub weekly_remaining_percent: Option<u64>,
+    pub monthly_remaining_percent: Option<u64>,
+    pub five_hour_reset_at_unix_seconds: Option<u64>,
+    pub weekly_reset_at_unix_seconds: Option<u64>,
+    pub five_hour_window_seconds: Option<u64>,
+    pub weekly_window_seconds: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StandalonePresetError {
     InvalidTabLabelMode { mode: String },
@@ -563,6 +602,284 @@ pub fn render_cursor_status_widget(facts: &CursorWidgetFacts) -> String {
     render_cursor_status_widget_frame(&color, &glyph_segment, &name)
 }
 
+pub fn render_codex_usage_status_widget(
+    facts: &WindowedAgentUsageFacts,
+    display: AgentUsageDisplay,
+) -> String {
+    render_agent_usage_status_widget("codex", &render_codex_usage_summary(facts, display))
+}
+
+pub fn render_codex_usage_summary(
+    facts: &WindowedAgentUsageFacts,
+    display: AgentUsageDisplay,
+) -> String {
+    let mut parts = Vec::new();
+    for period in [AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly] {
+        let (tokens, remaining_percent) = usage_period_values(facts, period);
+        let label = codex_reset_window_label(facts, period)
+            .unwrap_or_else(|| period.short_label().to_string());
+        if let Some(part) = render_codex_usage_window(&label, tokens, remaining_percent, display) {
+            parts.push(part);
+        }
+    }
+    parts.join(" · ")
+}
+
+pub fn render_windowed_agent_usage_status_widget(
+    label: &str,
+    facts: &WindowedAgentUsageFacts,
+    periods: &[AgentUsagePeriod],
+    display: AgentUsageDisplay,
+) -> String {
+    render_agent_usage_status_widget(
+        label,
+        &render_windowed_agent_usage_summary(facts, periods, display),
+    )
+}
+
+pub fn render_windowed_agent_usage_summary(
+    facts: &WindowedAgentUsageFacts,
+    periods: &[AgentUsagePeriod],
+    display: AgentUsageDisplay,
+) -> String {
+    let mut parts = Vec::new();
+    for period in periods {
+        let (tokens, remaining_percent) = usage_period_values(facts, *period);
+        if let Some(part) = render_windowed_agent_usage_window(
+            period.short_label(),
+            tokens,
+            remaining_percent,
+            display,
+        ) {
+            parts.push(part);
+        }
+    }
+    parts.join(" ")
+}
+
+fn render_agent_usage_status_widget(label: &str, summary: &str) -> String {
+    if summary.is_empty() {
+        String::new()
+    } else {
+        format!(" [{label}: {summary}]")
+    }
+}
+
+fn render_codex_usage_window(
+    label: &str,
+    tokens: Option<u64>,
+    remaining_percent: Option<u64>,
+    display: AgentUsageDisplay,
+) -> Option<String> {
+    let mut pieces = vec![label.to_string()];
+    match display {
+        AgentUsageDisplay::Token => {
+            pieces.push(format_agent_usage_token_count(tokens?));
+        }
+        AgentUsageDisplay::Quota => {
+            pieces.push(match remaining_percent {
+                Some(percent) => format_quota_percent(percent),
+                None if tokens.is_some() => "n/a".to_string(),
+                None => return None,
+            });
+        }
+        AgentUsageDisplay::Both => {
+            if let Some(tokens) = tokens {
+                pieces.push(format_agent_usage_token_count(tokens));
+            }
+            if let Some(remaining_percent) = remaining_percent {
+                pieces.push(format_quota_percent(remaining_percent));
+            }
+            if pieces.len() == 1 {
+                return None;
+            }
+        }
+    }
+    Some(pieces.join(" "))
+}
+
+fn render_windowed_agent_usage_window(
+    label: &str,
+    tokens: Option<u64>,
+    remaining_percent: Option<u64>,
+    display: AgentUsageDisplay,
+) -> Option<String> {
+    let mut pieces = vec![label.to_string()];
+    match display {
+        AgentUsageDisplay::Token => {
+            pieces.push(format_agent_usage_token_count(tokens?));
+        }
+        AgentUsageDisplay::Quota => {
+            pieces.push(match remaining_percent {
+                Some(percent) => format_quota_percent(percent),
+                None if tokens.is_some() => "n/a".to_string(),
+                None => return None,
+            });
+        }
+        AgentUsageDisplay::Both => {
+            if let Some(tokens) = tokens {
+                pieces.push(format_agent_usage_token_count(tokens));
+            }
+            if let Some(remaining_percent) = remaining_percent {
+                pieces.push(format_quota_percent(remaining_percent));
+            }
+            if pieces.len() == 1 {
+                return None;
+            }
+        }
+    }
+    Some(pieces.join("|"))
+}
+
+fn usage_period_values(
+    facts: &WindowedAgentUsageFacts,
+    period: AgentUsagePeriod,
+) -> (Option<u64>, Option<u64>) {
+    match period {
+        AgentUsagePeriod::FiveHour => (facts.five_hour_tokens, facts.five_hour_remaining_percent),
+        AgentUsagePeriod::Weekly => (facts.weekly_tokens, facts.weekly_remaining_percent),
+        AgentUsagePeriod::Monthly => (facts.monthly_tokens, facts.monthly_remaining_percent),
+    }
+}
+
+fn codex_reset_window_label(
+    facts: &WindowedAgentUsageFacts,
+    period: AgentUsagePeriod,
+) -> Option<String> {
+    let now = facts.updated_at_unix_seconds?;
+    let (reset_at, window_seconds) = match period {
+        AgentUsagePeriod::FiveHour => (
+            facts.five_hour_reset_at_unix_seconds?,
+            facts.five_hour_window_seconds?,
+        ),
+        AgentUsagePeriod::Weekly => (
+            facts.weekly_reset_at_unix_seconds?,
+            facts.weekly_window_seconds?,
+        ),
+        AgentUsagePeriod::Monthly => return None,
+    };
+    format_reset_window_label(reset_at, window_seconds, now)
+}
+
+fn format_agent_usage_token_count(tokens: u64) -> String {
+    if tokens >= 1_000_000_000 {
+        format_scaled_agent_usage_count(tokens as f64 / 1_000_000_000.0, "B")
+    } else if tokens >= 1_000_000 {
+        format_scaled_agent_usage_count(tokens as f64 / 1_000_000.0, "M")
+    } else if tokens >= 1_000 {
+        format!("{}k", tokens / 1_000)
+    } else {
+        tokens.to_string()
+    }
+}
+
+fn format_scaled_agent_usage_count(value: f64, suffix: &str) -> String {
+    let raw = if value >= 100.0 {
+        format!("{value:.0}")
+    } else if value >= 10.0 {
+        format!("{value:.1}")
+    } else {
+        format!("{value:.2}")
+    };
+    let trimmed = if raw.contains('.') {
+        raw.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        raw.as_str()
+    };
+    format!("{trimmed}{suffix}")
+}
+
+fn format_reset_window_label(
+    reset_at_unix_seconds: u64,
+    window_seconds: u64,
+    now_unix_seconds: u64,
+) -> Option<String> {
+    if window_seconds == 0 {
+        return None;
+    }
+    let remaining_seconds = reset_at_unix_seconds
+        .saturating_sub(now_unix_seconds)
+        .min(window_seconds);
+    let elapsed_seconds = window_seconds.saturating_sub(remaining_seconds);
+    Some(format!(
+        "{}/{}",
+        format_reset_window_position_duration(elapsed_seconds, window_seconds),
+        format_reset_window_total_duration(window_seconds)
+    ))
+}
+
+fn format_reset_window_position_duration(seconds: u64, window_seconds: u64) -> String {
+    const MINUTE_SECONDS: u64 = 60;
+    const HOUR_SECONDS: u64 = 60 * MINUTE_SECONDS;
+    const DAY_SECONDS: u64 = 24 * HOUR_SECONDS;
+
+    if window_seconds >= DAY_SECONDS {
+        let days = seconds / DAY_SECONDS;
+        let hours = (seconds % DAY_SECONDS) / HOUR_SECONDS;
+        if days > 0 && hours > 0 {
+            format!("{days}d{hours}h")
+        } else if days > 0 {
+            format!("{days}d")
+        } else if hours > 0 {
+            format!("{hours}h")
+        } else {
+            "0h".to_string()
+        }
+    } else if window_seconds >= HOUR_SECONDS {
+        let hours = seconds / HOUR_SECONDS;
+        let minutes = elapsed_minutes_after_hour(seconds);
+        if hours > 0 && minutes > 0 {
+            format!("{hours}h{minutes}m")
+        } else if hours > 0 {
+            format!("{hours}h")
+        } else {
+            format!("{minutes}m")
+        }
+    } else if window_seconds >= MINUTE_SECONDS {
+        if seconds > 0 {
+            format!("{}m", seconds.div_ceil(MINUTE_SECONDS))
+        } else {
+            "0m".to_string()
+        }
+    } else if seconds > 0 {
+        format!("{seconds}s")
+    } else {
+        "0s".to_string()
+    }
+}
+
+fn elapsed_minutes_after_hour(seconds: u64) -> u64 {
+    const HOUR_SECONDS: u64 = 60 * 60;
+    const MINUTE_SECONDS: u64 = 60;
+
+    let minutes = (seconds % HOUR_SECONDS) / MINUTE_SECONDS;
+    if seconds > 0 && seconds < HOUR_SECONDS && minutes == 0 {
+        1
+    } else {
+        minutes
+    }
+}
+
+fn format_reset_window_total_duration(seconds: u64) -> String {
+    const MINUTE_SECONDS: u64 = 60;
+    const HOUR_SECONDS: u64 = 60 * MINUTE_SECONDS;
+    const DAY_SECONDS: u64 = 24 * HOUR_SECONDS;
+
+    if seconds % DAY_SECONDS == 0 {
+        format!("{}d", seconds / DAY_SECONDS)
+    } else if seconds % HOUR_SECONDS == 0 {
+        format!("{}h", seconds / HOUR_SECONDS)
+    } else if seconds % MINUTE_SECONDS == 0 {
+        format!("{}m", seconds / MINUTE_SECONDS)
+    } else {
+        format!("{seconds}s")
+    }
+}
+
+fn format_quota_percent(percent: u64) -> String {
+    format!("{}%", percent.min(100))
+}
+
 fn cursor_split_preview(
     facts: &CursorWidgetFacts,
     fallback_primary_color: &str,
@@ -852,6 +1169,59 @@ mod tests {
                 secondary_color: Some("hot".into()),
             }),
             " #[fg=#ff1600,bg=default,bold][#[fg=#ff1600,bold]█#[fg=#ff1600,bg=default,bold] magma]"
+        );
+    }
+
+    // Defends: Codex cached usage facts support quota, token, both, partial quota, and elapsed reset-window labels outside Yazelix.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn renders_codex_usage_widget_from_cached_facts() {
+        let facts = WindowedAgentUsageFacts {
+            updated_at_unix_seconds: Some(1_700_001_800),
+            five_hour_tokens: Some(1_234_567),
+            weekly_tokens: Some(345_000_000),
+            five_hour_remaining_percent: Some(88),
+            weekly_remaining_percent: Some(101),
+            five_hour_reset_at_unix_seconds: Some(1_700_018_000),
+            weekly_reset_at_unix_seconds: Some(1_700_604_800),
+            five_hour_window_seconds: Some(18_000),
+            weekly_window_seconds: Some(604_800),
+            ..WindowedAgentUsageFacts::default()
+        };
+
+        assert_eq!(
+            render_codex_usage_status_widget(&facts, AgentUsageDisplay::Quota),
+            " [codex: 30m/5h 88% · 0h/7d 100%]"
+        );
+        assert_eq!(
+            render_codex_usage_status_widget(&facts, AgentUsageDisplay::Token),
+            " [codex: 30m/5h 1.23M · 0h/7d 345M]"
+        );
+        assert_eq!(
+            render_codex_usage_status_widget(&facts, AgentUsageDisplay::Both),
+            " [codex: 30m/5h 1.23M 88% · 0h/7d 345M 100%]"
+        );
+    }
+
+    // Regression: Codex quota mode renders n/a for token-only windows but hides fully missing windows.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn codex_usage_widget_handles_partial_quota_facts() {
+        let facts = WindowedAgentUsageFacts {
+            five_hour_tokens: Some(42_000),
+            ..WindowedAgentUsageFacts::default()
+        };
+
+        assert_eq!(
+            render_codex_usage_status_widget(&facts, AgentUsageDisplay::Quota),
+            " [codex: 5h n/a]"
+        );
+        assert_eq!(
+            render_codex_usage_status_widget(
+                &WindowedAgentUsageFacts::default(),
+                AgentUsageDisplay::Both
+            ),
+            ""
         );
     }
 
