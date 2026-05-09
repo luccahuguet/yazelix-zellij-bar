@@ -19,5 +19,9 @@ name = "yazelix_bar_widget"
 path = "src/bin/yazelix_bar_widget.rs"
 
 [dependencies]
-rusqlite = { version = "0.39.0", features = ["bundled"] }
+rusqlite = { version = "0.39.0", features = ["bundled"], optional = true }
 serde_json = "1.0"
+
+[features]
+default = ["providers"]
+providers = ["dep:rusqlite"]

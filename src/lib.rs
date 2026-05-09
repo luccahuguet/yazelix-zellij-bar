@@ -282,6 +282,7 @@ pub fn claude_usage_widget_text(options: ClaudeUsageWidgetOptions<'_>) -> Result
     ))
 }
 
+#[cfg(feature = "providers")]
 pub fn opencode_go_usage_widget_text(
     options: OpenCodeGoUsageWidgetOptions<'_>,
 ) -> Result<String, String> {
@@ -642,6 +643,7 @@ pub fn refresh_claude_usage_shared_cache(
     Ok(true)
 }
 
+#[cfg(feature = "providers")]
 pub fn refresh_opencode_go_usage_shared_cache(
     shared_path: &std::path::Path,
     db_paths: &[std::path::PathBuf],
@@ -1816,6 +1818,7 @@ fn collect_claude_usage_facts(
     facts
 }
 
+#[cfg(feature = "providers")]
 pub fn collect_opencode_go_usage_facts_from_dbs(
     db_paths: &[std::path::PathBuf],
     now: u64,
@@ -1880,18 +1883,21 @@ pub fn collect_opencode_go_usage_facts_from_dbs(
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[cfg(feature = "providers")]
 pub struct OpenCodeGoUsageWindow {
     pub tokens: u64,
     pub cost_usd: f64,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[cfg(feature = "providers")]
 pub struct OpenCodeGoUsageWindows {
     pub five_hour: OpenCodeGoUsageWindow,
     pub weekly: OpenCodeGoUsageWindow,
     pub monthly: OpenCodeGoUsageWindow,
 }
 
+#[cfg(feature = "providers")]
 pub fn collect_opencode_go_usage_windows_from_db(
     path: &std::path::Path,
     now: u64,
@@ -1917,6 +1923,7 @@ pub fn collect_opencode_go_usage_windows_from_db(
     })
 }
 
+#[cfg(feature = "providers")]
 pub fn query_opencode_go_usage_window(
     connection: &rusqlite::Connection,
     since_unix_seconds: u64,
@@ -1955,10 +1962,12 @@ pub fn query_opencode_go_usage_window(
         .map_err(|error| format!("failed to read OpenCode Go usage window: {error}"))
 }
 
+#[cfg(feature = "providers")]
 pub fn unix_millis_from_seconds_saturating(seconds: u64) -> i64 {
     seconds.saturating_mul(1000).min(i64::MAX as u64) as i64
 }
 
+#[cfg(feature = "providers")]
 pub fn remaining_percent_from_cost_limit(cost_usd: f64, limit_usd: f64) -> u64 {
     if limit_usd <= 0.0 {
         return 0;
