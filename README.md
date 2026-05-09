@@ -199,7 +199,7 @@ Use `share/yazelix_zellij_bar/examples/yazelix_runtime_widgets.kdl` only inside 
 
 ## Current Limit
 
-Zellij/zjstatus presets do not currently have a native include or variables layer. Use the generator for structured brand, color, order, and command-widget changes; copy `yazelix_zellij_bar.template.kdl` only when editing lower-level zjstatus keys that the generator does not expose
+Zellij/zjstatus presets do not currently have a native include or variables layer. Edit the KDL directly for brand, color, order, and command-widget changes; copy `yazelix_zellij_bar.template.kdl` when substituting a different pinned `zjstatus.wasm`
 
 ## Release Process
 
