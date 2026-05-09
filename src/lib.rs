@@ -204,8 +204,17 @@ impl WindowedAgentUsageFacts {
 
 pub const CODEX_USAGE_CACHE_SCHEMA_VERSION: i64 = 2;
 pub const CLAUDE_USAGE_CACHE_SCHEMA_VERSION: i64 = 1;
+pub const OPENCODE_GO_USAGE_CACHE_SCHEMA_VERSION: i64 = 1;
 pub const CODEX_USAGE_LOCK_STALE_AFTER_SECONDS: u64 = 300;
 pub const CLAUDE_USAGE_LOCK_STALE_AFTER_SECONDS: u64 = 300;
+pub const OPENCODE_GO_USAGE_LOCK_STALE_AFTER_SECONDS: u64 = 300;
+pub const OPENCODE_GO_PROVIDER_ID: &str = "opencode-go";
+pub const OPENCODE_GO_FIVE_HOUR_SECONDS: u64 = 5 * 60 * 60;
+pub const OPENCODE_GO_WEEK_SECONDS: u64 = 7 * 24 * 60 * 60;
+pub const OPENCODE_GO_MONTH_SECONDS: u64 = 30 * 24 * 60 * 60;
+pub const OPENCODE_GO_FIVE_HOUR_LIMIT_USD: f64 = 12.0;
+pub const OPENCODE_GO_WEEKLY_LIMIT_USD: f64 = 30.0;
+pub const OPENCODE_GO_MONTHLY_LIMIT_USD: f64 = 60.0;
 const AGENT_USAGE_MINUTE_SECONDS: u64 = 60;
 
 #[derive(Debug, Clone, Copy)]
@@ -227,6 +236,16 @@ pub struct ClaudeUsageWidgetOptions<'a> {
     pub max_age_seconds: u64,
     pub error_backoff_seconds: u64,
     pub timeout: std::time::Duration,
+    pub display: AgentUsageDisplay,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct OpenCodeGoUsageWidgetOptions<'a> {
+    pub cache_path: &'a std::path::Path,
+    pub db_paths: &'a [std::path::PathBuf],
+    pub now_unix_seconds: u64,
+    pub max_age_seconds: u64,
+    pub error_backoff_seconds: u64,
     pub display: AgentUsageDisplay,
 }
 
@@ -258,6 +277,43 @@ pub fn claude_usage_widget_text(options: ClaudeUsageWidgetOptions<'_>) -> Result
         options.cache_path,
         options.display,
     ))
+}
+
+pub fn opencode_go_usage_widget_text(
+    options: OpenCodeGoUsageWidgetOptions<'_>,
+) -> Result<String, String> {
+    refresh_opencode_go_usage_shared_cache(
+        options.cache_path,
+        options.db_paths,
+        options.now_unix_seconds,
+        options.max_age_seconds,
+        options.error_backoff_seconds,
+    )?;
+    Ok(render_opencode_go_usage_widget_from_cache(
+        options.cache_path,
+        options.display,
+    ))
+}
+
+pub fn render_opencode_go_usage_widget_from_cache(
+    path: &std::path::Path,
+    display: AgentUsageDisplay,
+) -> String {
+    read_opencode_go_usage_shared_cache_value(path)
+        .and_then(|cache| cache.get("opencode_go").cloned())
+        .map(|entry| {
+            render_windowed_agent_usage_status_widget(
+                "go",
+                &windowed_usage_facts_from_cache_entry(&entry),
+                &[
+                    AgentUsagePeriod::FiveHour,
+                    AgentUsagePeriod::Weekly,
+                    AgentUsagePeriod::Monthly,
+                ],
+                display,
+            )
+        })
+        .unwrap_or_default()
 }
 
 pub fn render_claude_usage_widget_from_cache(
@@ -312,6 +368,21 @@ pub fn read_claude_usage_shared_cache_value(path: &std::path::Path) -> Option<se
         .get("schema_version")
         .and_then(serde_json::Value::as_i64)
         != Some(CLAUDE_USAGE_CACHE_SCHEMA_VERSION)
+    {
+        return None;
+    }
+    Some(cache)
+}
+
+pub fn read_opencode_go_usage_shared_cache_value(
+    path: &std::path::Path,
+) -> Option<serde_json::Value> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let cache: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    if cache
+        .get("schema_version")
+        .and_then(serde_json::Value::as_i64)
+        != Some(OPENCODE_GO_USAGE_CACHE_SCHEMA_VERSION)
     {
         return None;
     }
@@ -514,6 +585,77 @@ pub fn refresh_claude_usage_shared_cache(
         &serde_json::json!({
             "schema_version": CLAUDE_USAGE_CACHE_SCHEMA_VERSION,
             "claude": serde_json::Value::Object(entry),
+        }),
+    )?;
+    Ok(true)
+}
+
+pub fn refresh_opencode_go_usage_shared_cache(
+    shared_path: &std::path::Path,
+    db_paths: &[std::path::PathBuf],
+    now: u64,
+    max_age_seconds: u64,
+    error_backoff_seconds: u64,
+) -> Result<bool, String> {
+    if opencode_go_usage_shared_cache_is_fresh(shared_path, now, max_age_seconds)
+        || opencode_go_usage_shared_cache_is_backing_off(shared_path, now)
+    {
+        return Ok(false);
+    }
+    let Some(_lock) = try_acquire_opencode_go_usage_cache_lock(shared_path, now)? else {
+        return Ok(false);
+    };
+    if opencode_go_usage_shared_cache_is_fresh(shared_path, now, max_age_seconds)
+        || opencode_go_usage_shared_cache_is_backing_off(shared_path, now)
+    {
+        return Ok(false);
+    }
+
+    let facts = collect_opencode_go_usage_facts_from_dbs(db_paths, now);
+    let mut entry = serde_json::Map::new();
+    entry.insert(
+        "updated_at_unix_seconds".to_string(),
+        serde_json::json!(now),
+    );
+    insert_u64(&mut entry, "five_hour_tokens", facts.five_hour_tokens);
+    insert_u64(&mut entry, "weekly_tokens", facts.weekly_tokens);
+    insert_u64(&mut entry, "monthly_tokens", facts.monthly_tokens);
+    insert_u64(
+        &mut entry,
+        "five_hour_remaining_percent",
+        facts.five_hour_remaining_percent,
+    );
+    insert_u64(
+        &mut entry,
+        "weekly_remaining_percent",
+        facts.weekly_remaining_percent,
+    );
+    insert_u64(
+        &mut entry,
+        "monthly_remaining_percent",
+        facts.monthly_remaining_percent,
+    );
+    if let Some(error) = facts.error.as_deref().filter(|value| !value.is_empty()) {
+        entry.insert("error".to_string(), serde_json::json!(error));
+        entry.insert(
+            "backoff_until_unix_seconds".to_string(),
+            serde_json::json!(now.saturating_add(error_backoff_seconds)),
+        );
+    }
+    let status = if facts.is_empty() {
+        "error"
+    } else if facts.has_tokens() && facts.has_quota() {
+        "ok"
+    } else {
+        "partial"
+    };
+    entry.insert("status".to_string(), serde_json::json!(status));
+
+    write_json_value_atomic(
+        shared_path,
+        &serde_json::json!({
+            "schema_version": OPENCODE_GO_USAGE_CACHE_SCHEMA_VERSION,
+            "opencode_go": serde_json::Value::Object(entry),
         }),
     )?;
     Ok(true)
@@ -1197,6 +1339,38 @@ pub fn claude_usage_shared_cache_is_backing_off(path: &std::path::Path, now: u64
         .is_some_and(|backoff_until| now < backoff_until)
 }
 
+pub fn opencode_go_usage_shared_cache_is_fresh(
+    path: &std::path::Path,
+    now: u64,
+    max_age_seconds: u64,
+) -> bool {
+    let Some(cache) = read_opencode_go_usage_shared_cache_value(path) else {
+        return false;
+    };
+    cache
+        .get("opencode_go")
+        .and_then(|entry| entry.get("updated_at_unix_seconds"))
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|updated_at| {
+            now.saturating_sub(updated_at) < max_age_seconds
+                && cache
+                    .get("opencode_go")
+                    .map(windowed_usage_facts_from_cache_entry)
+                    .is_some_and(|facts| opencode_go_usage_facts_are_complete(&facts))
+        })
+}
+
+pub fn opencode_go_usage_shared_cache_is_backing_off(path: &std::path::Path, now: u64) -> bool {
+    read_opencode_go_usage_shared_cache_value(path)
+        .and_then(|cache| {
+            cache
+                .get("opencode_go")?
+                .get("backoff_until_unix_seconds")?
+                .as_u64()
+        })
+        .is_some_and(|backoff_until| now < backoff_until)
+}
+
 pub fn codex_usage_quota_backoff_until(path: &std::path::Path, now: u64) -> Option<u64> {
     read_codex_usage_shared_cache_value(path)
         .and_then(|cache| {
@@ -1237,6 +1411,15 @@ fn claude_usage_facts_are_complete(facts: &WindowedAgentUsageFacts) -> bool {
         && facts.weekly_remaining_percent.is_some()
 }
 
+fn opencode_go_usage_facts_are_complete(facts: &WindowedAgentUsageFacts) -> bool {
+    facts.five_hour_tokens.is_some()
+        && facts.weekly_tokens.is_some()
+        && facts.monthly_tokens.is_some()
+        && facts.five_hour_remaining_percent.is_some()
+        && facts.weekly_remaining_percent.is_some()
+        && facts.monthly_remaining_percent.is_some()
+}
+
 struct AgentUsageCacheLock {
     path: std::path::PathBuf,
 }
@@ -1270,6 +1453,19 @@ fn try_acquire_claude_usage_cache_lock(
         )),
         now,
         CLAUDE_USAGE_LOCK_STALE_AFTER_SECONDS,
+    )
+}
+
+fn try_acquire_opencode_go_usage_cache_lock(
+    shared_path: &std::path::Path,
+    now: u64,
+) -> Result<Option<AgentUsageCacheLock>, String> {
+    try_acquire_agent_usage_cache_lock(
+        shared_path.with_file_name(format!(
+            ".opencode_go_usage_cache_v{OPENCODE_GO_USAGE_CACHE_SCHEMA_VERSION}.lock"
+        )),
+        now,
+        OPENCODE_GO_USAGE_LOCK_STALE_AFTER_SECONDS,
     )
 }
 
@@ -1551,6 +1747,223 @@ fn collect_claude_usage_facts(
         }
     }
     facts
+}
+
+pub fn collect_opencode_go_usage_facts_from_dbs(
+    db_paths: &[std::path::PathBuf],
+    now: u64,
+) -> WindowedAgentUsageFacts {
+    if db_paths.is_empty() {
+        return WindowedAgentUsageFacts {
+            error: Some("missing OpenCode DB".to_string()),
+            ..WindowedAgentUsageFacts::default()
+        };
+    }
+
+    let mut five_hour = OpenCodeGoUsageWindow::default();
+    let mut weekly = OpenCodeGoUsageWindow::default();
+    let mut monthly = OpenCodeGoUsageWindow::default();
+    let mut opened_any = false;
+    let mut first_error = None;
+
+    for path in db_paths {
+        match collect_opencode_go_usage_windows_from_db(path, now) {
+            Ok(db_windows) => {
+                opened_any = true;
+                five_hour.tokens = five_hour.tokens.saturating_add(db_windows.five_hour.tokens);
+                five_hour.cost_usd += db_windows.five_hour.cost_usd;
+                weekly.tokens = weekly.tokens.saturating_add(db_windows.weekly.tokens);
+                weekly.cost_usd += db_windows.weekly.cost_usd;
+                monthly.tokens = monthly.tokens.saturating_add(db_windows.monthly.tokens);
+                monthly.cost_usd += db_windows.monthly.cost_usd;
+            }
+            Err(error) => {
+                if first_error.is_none() {
+                    first_error = Some(format!("{}: {error}", path.display()));
+                }
+            }
+        }
+    }
+
+    if !opened_any {
+        return WindowedAgentUsageFacts {
+            error: first_error.or_else(|| Some("OpenCode DB unavailable".to_string())),
+            ..WindowedAgentUsageFacts::default()
+        };
+    }
+
+    WindowedAgentUsageFacts {
+        five_hour_tokens: Some(five_hour.tokens),
+        five_hour_remaining_percent: Some(remaining_percent_from_cost_limit(
+            five_hour.cost_usd,
+            OPENCODE_GO_FIVE_HOUR_LIMIT_USD,
+        )),
+        weekly_tokens: Some(weekly.tokens),
+        weekly_remaining_percent: Some(remaining_percent_from_cost_limit(
+            weekly.cost_usd,
+            OPENCODE_GO_WEEKLY_LIMIT_USD,
+        )),
+        monthly_tokens: Some(monthly.tokens),
+        monthly_remaining_percent: Some(remaining_percent_from_cost_limit(
+            monthly.cost_usd,
+            OPENCODE_GO_MONTHLY_LIMIT_USD,
+        )),
+        ..WindowedAgentUsageFacts::default()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct OpenCodeGoUsageWindow {
+    pub tokens: u64,
+    pub cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct OpenCodeGoUsageWindows {
+    pub five_hour: OpenCodeGoUsageWindow,
+    pub weekly: OpenCodeGoUsageWindow,
+    pub monthly: OpenCodeGoUsageWindow,
+}
+
+pub fn collect_opencode_go_usage_windows_from_db(
+    path: &std::path::Path,
+    now: u64,
+) -> Result<OpenCodeGoUsageWindows, String> {
+    let connection =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|error| format!("failed to open OpenCode DB read-only: {error}"))?;
+    connection
+        .busy_timeout(std::time::Duration::from_millis(250))
+        .map_err(|error| format!("failed to configure OpenCode DB read timeout: {error}"))?;
+    let five_hour = query_opencode_go_usage_window(
+        &connection,
+        now.saturating_sub(OPENCODE_GO_FIVE_HOUR_SECONDS),
+    )?;
+    let weekly =
+        query_opencode_go_usage_window(&connection, now.saturating_sub(OPENCODE_GO_WEEK_SECONDS))?;
+    let monthly =
+        query_opencode_go_usage_window(&connection, now.saturating_sub(OPENCODE_GO_MONTH_SECONDS))?;
+    Ok(OpenCodeGoUsageWindows {
+        five_hour,
+        weekly,
+        monthly,
+    })
+}
+
+pub fn query_opencode_go_usage_window(
+    connection: &rusqlite::Connection,
+    since_unix_seconds: u64,
+) -> Result<OpenCodeGoUsageWindow, String> {
+    connection
+        .query_row(
+            r#"
+            SELECT
+              COALESCE(SUM(
+                COALESCE(
+                  json_extract(data, '$.tokens.total'),
+                  COALESCE(json_extract(data, '$.tokens.input'), 0) +
+                  COALESCE(json_extract(data, '$.tokens.output'), 0) +
+                  COALESCE(json_extract(data, '$.tokens.reasoning'), 0) +
+                  COALESCE(json_extract(data, '$.tokens.cache.read'), 0) +
+                  COALESCE(json_extract(data, '$.tokens.cache.write'), 0)
+                )
+              ), 0),
+              COALESCE(SUM(COALESCE(json_extract(data, '$.cost'), 0.0)), 0.0)
+            FROM message
+            WHERE time_created >= ?1
+              AND json_extract(data, '$.role') = 'assistant'
+              AND json_extract(data, '$.providerID') = ?2
+            "#,
+            rusqlite::params![
+                unix_millis_from_seconds_saturating(since_unix_seconds),
+                OPENCODE_GO_PROVIDER_ID
+            ],
+            |row| {
+                Ok(OpenCodeGoUsageWindow {
+                    tokens: row.get::<_, i64>(0)?.max(0) as u64,
+                    cost_usd: row.get::<_, f64>(1)?.max(0.0),
+                })
+            },
+        )
+        .map_err(|error| format!("failed to read OpenCode Go usage window: {error}"))
+}
+
+pub fn unix_millis_from_seconds_saturating(seconds: u64) -> i64 {
+    seconds.saturating_mul(1000).min(i64::MAX as u64) as i64
+}
+
+pub fn remaining_percent_from_cost_limit(cost_usd: f64, limit_usd: f64) -> u64 {
+    if limit_usd <= 0.0 {
+        return 0;
+    }
+    (100.0 - (cost_usd / limit_usd * 100.0))
+        .clamp(0.0, 100.0)
+        .round() as u64
+}
+
+pub fn opencode_db_candidates_from_env() -> Vec<std::path::PathBuf> {
+    opencode_db_candidates_from_values(
+        std::env::var_os("OPENCODE_DB").map(std::path::PathBuf::from),
+        std::env::var_os("OPENCODE_DATA_DIR").map(std::path::PathBuf::from),
+        std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from),
+        std::env::var_os("HOME").map(std::path::PathBuf::from),
+    )
+}
+
+pub fn opencode_db_candidates_from_values(
+    opencode_db: Option<std::path::PathBuf>,
+    opencode_data_dir: Option<std::path::PathBuf>,
+    xdg_data_home: Option<std::path::PathBuf>,
+    home: Option<std::path::PathBuf>,
+) -> Vec<std::path::PathBuf> {
+    let data_dir = opencode_data_dir
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(|| {
+            xdg_data_home
+                .filter(|path| !path.as_os_str().is_empty())
+                .map(|path| path.join("opencode"))
+        })
+        .or_else(|| {
+            home.filter(|path| !path.as_os_str().is_empty())
+                .map(|path| path.join(".local").join("share").join("opencode"))
+        });
+
+    let mut candidates = Vec::new();
+    if let Some(path) = opencode_db.filter(|path| !path.as_os_str().is_empty()) {
+        if path.is_absolute() {
+            push_unique_path(&mut candidates, path);
+        } else if let Some(data_dir) = data_dir.as_ref() {
+            push_unique_path(&mut candidates, data_dir.join(path));
+        } else {
+            push_unique_path(&mut candidates, path);
+        }
+    }
+
+    if let Some(data_dir) = data_dir {
+        push_unique_path(&mut candidates, data_dir.join("opencode.db"));
+        if let Ok(entries) = std::fs::read_dir(data_dir) {
+            let mut channel_dbs = entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with("opencode-") && name.ends_with(".db"))
+                })
+                .collect::<Vec<_>>();
+            channel_dbs.sort();
+            for path in channel_dbs {
+                push_unique_path(&mut candidates, path);
+            }
+        }
+    }
+    candidates
+}
+
+fn push_unique_path(paths: &mut Vec<std::path::PathBuf>, path: std::path::PathBuf) {
+    if !paths.contains(&path) {
+        paths.push(path);
+    }
 }
 
 fn codex_active_block_args() -> Vec<&'static str> {
@@ -2253,6 +2666,46 @@ mod tests {
         std::fs::set_permissions(path, permissions).unwrap();
     }
 
+    fn write_opencode_go_test_db(path: &std::path::Path, now: u64) {
+        let connection = rusqlite::Connection::open(path).unwrap();
+        connection
+            .execute(
+                "CREATE TABLE message (time_created INTEGER NOT NULL, data TEXT NOT NULL)",
+                [],
+            )
+            .unwrap();
+        let rows = [
+            (
+                now.saturating_sub(60),
+                r#"{"role":"assistant","providerID":"opencode-go","tokens":{"total":1000},"cost":3.0}"#,
+            ),
+            (
+                now.saturating_sub(6 * 60 * 60),
+                r#"{"role":"assistant","providerID":"opencode-go","tokens":{"input":1200,"output":800},"cost":6.0}"#,
+            ),
+            (
+                now.saturating_sub(8 * 24 * 60 * 60),
+                r#"{"role":"assistant","providerID":"opencode-go","tokens":{"total":30000},"cost":30.0}"#,
+            ),
+            (
+                now.saturating_sub(60),
+                r#"{"role":"user","providerID":"opencode-go","tokens":{"total":900000},"cost":99.0}"#,
+            ),
+            (
+                now.saturating_sub(60),
+                r#"{"role":"assistant","providerID":"other","tokens":{"total":900000},"cost":99.0}"#,
+            ),
+        ];
+        for (created_at, data) in rows {
+            connection
+                .execute(
+                    "INSERT INTO message (time_created, data) VALUES (?1, ?2)",
+                    rusqlite::params![unix_millis_from_seconds_saturating(created_at), data],
+                )
+                .unwrap();
+        }
+    }
+
     // Defends: the bar registry preserves the existing zjstatus widgets and exact segment syntax.
     // Strength: defect=2 behavior=2 resilience=1 cost=1 uniqueness=2 total=8/10
     #[test]
@@ -2819,6 +3272,99 @@ fi
             ),
             ""
         );
+    }
+
+    // Defends: the standalone OpenCode Go command owns DB probing, cost-limit windows, cache writes, and rendering without Yazelix runtime paths.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn opencode_go_usage_widget_refreshes_shared_cache_from_db() {
+        let temp = temp_test_dir("opencode_go_usage_refresh");
+        let now = 10_000_000;
+        let db_path = temp.join("opencode.db");
+        write_opencode_go_test_db(&db_path, now);
+        let cache_path = temp
+            .join("agent_usage")
+            .join("opencode_go_usage_cache_v1.json");
+
+        let text = opencode_go_usage_widget_text(OpenCodeGoUsageWidgetOptions {
+            cache_path: &cache_path,
+            db_paths: &[db_path],
+            now_unix_seconds: now,
+            max_age_seconds: 600,
+            error_backoff_seconds: 1_800,
+            display: AgentUsageDisplay::Both,
+        })
+        .unwrap();
+
+        assert_eq!(text, " [go 5h|1k|75% wk|3k|70% mo|33k|35%]");
+        assert_eq!(
+            read_opencode_go_usage_shared_cache_value(&cache_path)
+                .unwrap()
+                .pointer("/opencode_go/status")
+                .and_then(serde_json::Value::as_str),
+            Some("ok")
+        );
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // Defends: OpenCode Go cache freshness and error backoff are enforced by yazelix-bar, not by Yazelix wrappers.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn opencode_go_usage_shared_cache_respects_freshness_and_backoff() {
+        let temp = temp_test_dir("opencode_go_usage_backoff");
+        let cache_path = temp.join("opencode_go_usage_cache_v1.json");
+        write_json_value_atomic(
+            &cache_path,
+            &serde_json::json!({
+                "schema_version": OPENCODE_GO_USAGE_CACHE_SCHEMA_VERSION,
+                "opencode_go": {
+                    "updated_at_unix_seconds": 1_000u64,
+                    "five_hour_tokens": 1_000u64,
+                    "weekly_tokens": 3_000u64,
+                    "monthly_tokens": 33_000u64,
+                    "five_hour_remaining_percent": 75u64,
+                    "weekly_remaining_percent": 70u64,
+                    "monthly_remaining_percent": 35u64,
+                    "status": "ok"
+                }
+            }),
+        )
+        .unwrap();
+
+        assert!(opencode_go_usage_shared_cache_is_fresh(
+            &cache_path,
+            1_100,
+            600
+        ));
+        assert!(!opencode_go_usage_shared_cache_is_fresh(
+            &cache_path,
+            1_700,
+            600
+        ));
+
+        write_json_value_atomic(
+            &cache_path,
+            &serde_json::json!({
+                "schema_version": OPENCODE_GO_USAGE_CACHE_SCHEMA_VERSION,
+                "opencode_go": {
+                    "updated_at_unix_seconds": 1_700u64,
+                    "error": "missing OpenCode DB",
+                    "backoff_until_unix_seconds": 2_000u64,
+                    "status": "error"
+                }
+            }),
+        )
+        .unwrap();
+
+        assert!(opencode_go_usage_shared_cache_is_backing_off(
+            &cache_path,
+            1_999
+        ));
+        assert!(!opencode_go_usage_shared_cache_is_backing_off(
+            &cache_path,
+            2_000
+        ));
+        let _ = std::fs::remove_dir_all(temp);
     }
 
     // Regression: unsupported widget names must fail fast instead of leaving broken zjstatus placeholders.
