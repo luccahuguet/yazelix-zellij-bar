@@ -1,6 +1,6 @@
-# Yazelix Bar
+# Yazelix Zellij Bar
 
-`yazelix_bar` is a standalone Zellij/zjstatus preset for users who want the Yazelix top-bar style without adopting the full Yazelix workspace
+`yazelix-zellij-bar` is a standalone Zellij bar plugin package for users who want the Yazelix top-bar style without adopting the full Yazelix workspace
 
 ## Install Shape
 

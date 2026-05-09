@@ -1,5 +1,5 @@
 {
-  description = "Standalone Zellij zjstatus bar preset from Yazelix";
+  description = "Standalone Zellij bar plugin package from Yazelix";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -62,8 +62,8 @@
           cargoLock.lockFile = ./Cargo.lock;
 
           meta = {
-            description = "Standalone Yazelix bar generator and widget commands";
-            homepage = "https://github.com/luccahuguet/yazelix-bar";
+            description = "Standalone Yazelix Zellij bar generator and widget commands";
+            homepage = "https://github.com/luccahuguet/yazelix-zellij-bar";
             license = pkgs.lib.licenses.asl20;
             mainProgram = "yazelix_bar_generate";
           };
@@ -145,8 +145,8 @@
           };
 
           meta = {
-            description = "Standalone Zellij zjstatus bar preset from Yazelix";
-            homepage = "https://github.com/luccahuguet/yazelix-bar";
+            description = "Standalone Zellij bar plugin package from Yazelix";
+            homepage = "https://github.com/luccahuguet/yazelix-zellij-bar";
             license = pkgs.lib.licenses.asl20;
             mainProgram = "yazelix_bar_generate";
           };
