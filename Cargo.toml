@@ -11,10 +11,6 @@ keywords = ["zellij", "zjstatus", "terminal", "tui", "yazelix"]
 categories = ["command-line-utilities"]
 
 [[bin]]
-name = "yazelix_zellij_bar_generate"
-path = "src/bin/yazelix_zellij_bar_generate.rs"
-
-[[bin]]
 name = "yazelix_zellij_bar_widget"
 path = "src/bin/yazelix_zellij_bar_widget.rs"
 

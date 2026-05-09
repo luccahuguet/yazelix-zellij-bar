@@ -1,5 +1,6 @@
 use std::env;
 use std::process;
+use std::process::Command;
 
 fn main() {
     match run(env::args().skip(1).collect()) {
@@ -36,19 +37,7 @@ fn run_cursor(args: &[String]) -> Result<String, String> {
             if !rendered.is_empty() {
                 return Ok(rendered);
             }
-            let Some(path) = default_config_path("cursor.env") else {
-                return Ok(rendered);
-            };
-            if path.is_file() {
-                yazelix_zellij_bar::cursor_widget_text_from_fact_file(&path).map_err(|error| {
-                    format!(
-                        "failed to read cursor fact file {}: {error}",
-                        path.display()
-                    )
-                })
-            } else {
-                Ok(rendered)
-            }
+            Ok(cursor_widget_text_from_yzc())
         }
         [flag, path] if flag == "--facts" => {
             yazelix_zellij_bar::cursor_widget_text_from_fact_file(path)
@@ -249,9 +238,17 @@ fn default_cache_path(file_name: &str) -> Option<std::path::PathBuf> {
         .map(|base| base.join("yazelix_zellij_bar").join(file_name))
 }
 
-fn default_config_path(file_name: &str) -> Option<std::path::PathBuf> {
-    xdg_base_path("XDG_CONFIG_HOME", ".config")
-        .map(|base| base.join("yazelix_zellij_bar").join(file_name))
+fn cursor_widget_text_from_yzc() -> String {
+    let Ok(output) = Command::new("yzc")
+        .args(["current", "--format", "env"])
+        .output()
+    else {
+        return String::new();
+    };
+    if !output.status.success() {
+        return String::new();
+    }
+    yazelix_zellij_bar::cursor_widget_text_from_fact_text(&String::from_utf8_lossy(&output.stdout))
 }
 
 fn xdg_base_path(env_name: &str, home_fallback: &str) -> Option<std::path::PathBuf> {

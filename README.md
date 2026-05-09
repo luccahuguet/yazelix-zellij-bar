@@ -13,18 +13,16 @@ nix profile install github:luccahuguet/yazelix-zellij-bar#yazelix_zellij_bar
 
 The package installs:
 
-- `bin/yazelix_zellij_bar_generate`
 - `bin/yazelix_zellij_bar_widget`
 - `share/yazelix_zellij_bar/zjstatus.wasm`
 - `share/yazelix_zellij_bar/yazelix_zellij_bar.kdl`
 - `share/yazelix_zellij_bar/yazelix_zellij_bar.template.kdl`
-- `share/yazelix_zellij_bar/generated/yazelix_zellij_bar.kdl`
 - `share/yazelix_zellij_bar/examples/custom_command_widgets.kdl`
 - `share/yazelix_zellij_bar/examples/standalone_zellij_layout.kdl`
 - `share/yazelix_zellij_bar/examples/yazelix_runtime_widgets.kdl`
 - `share/doc/yazelix_zellij_bar/README.md`
 
-Use `yazelix_zellij_bar.kdl` as a Zellij layout plugin block. The template keeps `__YAZELIX_ZELLIJ_BAR_ZJSTATUS_WASM__` for users who want to substitute a different pinned `zjstatus.wasm`. The generated preset is emitted by `yazelix_zellij_bar_generate` with package-local paths. The example snippets are small blocks to copy into the plugin body rather than alternate full presets
+Use `yazelix_zellij_bar.kdl` as a Zellij layout plugin block. The template keeps `__YAZELIX_ZELLIJ_BAR_ZJSTATUS_WASM__` for users who want to substitute a different pinned `zjstatus.wasm`. The example snippets are small blocks to copy into the plugin body rather than alternate full presets
 
 ## Minimal Zellij Layout Snippet
 
@@ -62,7 +60,7 @@ The optional provider widgets only need their own upstream facts:
 
 - `codex_usage` and `claude_usage` use `tokenusage` when it is available on `PATH`
 - `opencode_go_usage` reads OpenCode Go SQLite databases from default locations or explicit `--db` paths
-- `cursor` reads `YAZELIX_CURSOR_*` environment facts or a small `--facts` file
+- `cursor` reads `YAZELIX_CURSOR_*` environment facts first, then asks `yzc current --format env` when `yazelix-cursors` is available on `PATH`
 - `cpu` and `ram` read Linux `/proc` directly
 
 None of those widget commands require Yazelix runtime paths, `yzx_control`, or a Yazelix session cache
@@ -134,41 +132,9 @@ layout {
 
 Replace the `zjstatus.wasm` path with the installed package path. If you install through Nix profiles, `nix profile list` shows the profile entry, and the installed files live under that package output
 
-Minimal cursor fact file:
-
-```bash
-mkdir -p "$HOME/.config/yazelix_zellij_bar"
-cat > "$HOME/.config/yazelix_zellij_bar/cursor.env" <<'EOF'
-YAZELIX_CURSOR_NAME=reef
-YAZELIX_CURSOR_COLOR=#14d9a0
-YAZELIX_CURSOR_FAMILY=mono
-EOF
-```
+For cursor display outside Yazelix, install `yazelix-cursors` and keep `yzc` on `PATH`. If no cursor facts or `yzc` command are available, the cursor widget prints nothing instead of failing the bar
 
 Provider widgets maintain their own cache, lock, freshness, and error-backoff files under `$XDG_CACHE_HOME/yazelix_zellij_bar` or `$HOME/.cache/yazelix_zellij_bar`. Use `--cache` only when overriding the default. Yazelix may omit it because the full runtime exports `YAZELIX_STATUS_BAR_CACHE_PATH`
-
-## Preset Generator
-
-Use `yazelix_zellij_bar_generate` when brand text, colors, widget order, or generic command widgets should come from structured options instead of manual KDL edits
-
-```bash
-yazelix_zellij_bar_generate \
-  --wasm-url "file:/path/to/zjstatus.wasm" \
-  --brand-label "DEV BAR" \
-  --right "session,datetime,command:host,brand" \
-  --command "host=hostname -s"
-```
-
-The `--left`, `--center`, and `--right` flags accept comma-separated tokens:
-
-- `mode`
-- `tabs`
-- `session`
-- `datetime`
-- `brand`
-- `command:name`
-
-Command widgets use `--command name=command`, with optional `--command-format name=format` and `--command-interval name=seconds`. Use this for custom commands that are not built into `yazelix_zellij_bar_widget`
 
 ## Standalone Fact Renderers
 
