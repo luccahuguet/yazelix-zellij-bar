@@ -661,7 +661,7 @@ fn render_agent_usage_status_widget(label: &str, summary: &str) -> String {
     if summary.is_empty() {
         String::new()
     } else {
-        format!(" [{label}: {summary}]")
+        format!(" [{label} {summary}]")
     }
 }
 
@@ -1191,15 +1191,15 @@ mod tests {
 
         assert_eq!(
             render_codex_usage_status_widget(&facts, AgentUsageDisplay::Quota),
-            " [codex: 30m/5h 88% · 0h/7d 100%]"
+            " [codex 30m/5h 88% · 0h/7d 100%]"
         );
         assert_eq!(
             render_codex_usage_status_widget(&facts, AgentUsageDisplay::Token),
-            " [codex: 30m/5h 1.23M · 0h/7d 345M]"
+            " [codex 30m/5h 1.23M · 0h/7d 345M]"
         );
         assert_eq!(
             render_codex_usage_status_widget(&facts, AgentUsageDisplay::Both),
-            " [codex: 30m/5h 1.23M 88% · 0h/7d 345M 100%]"
+            " [codex 30m/5h 1.23M 88% · 0h/7d 345M 100%]"
         );
     }
 
@@ -1214,7 +1214,7 @@ mod tests {
 
         assert_eq!(
             render_codex_usage_status_widget(&facts, AgentUsageDisplay::Quota),
-            " [codex: 5h n/a]"
+            " [codex 5h n/a]"
         );
         assert_eq!(
             render_codex_usage_status_widget(
