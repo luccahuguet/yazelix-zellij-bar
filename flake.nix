@@ -128,6 +128,7 @@
             grep -q 'format_right' "$out/share/yazelix_bar/generated/yazelix_bar.kdl"
             ! grep -q '__YAZELIX_BAR_ZJSTATUS_WASM__' "$out/share/yazelix_bar/yazelix_bar.kdl"
             test -s "$out/share/yazelix_bar/examples/custom_command_widgets.kdl"
+            test -s "$out/share/yazelix_bar/examples/standalone_zellij_layout.kdl"
             test -s "$out/share/yazelix_bar/examples/yazelix_runtime_widgets.kdl"
 
             runHook postInstallCheck

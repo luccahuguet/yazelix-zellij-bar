@@ -1,26 +1,34 @@
 // These snippets require the full Yazelix runtime and its cached status helpers.
-// They are not part of the generic standalone default.
+// Workspace and version are Yazelix-only. Other widgets are bar-owned commands.
 
-format_right "#[fg=#ff0088,bold]{session}{command_workspace}{command_cursor}{command_codex_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]YAZELIX {command_version} "
+format_right "#[fg=#ff0088,bold]{session}{command_workspace}{command_cursor}{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]YAZELIX {command_version} "
 
 command_workspace_command "yzx_control zellij status-cache-widget workspace"
 command_workspace_format "#[fg=#00ff88,bold]{stdout}"
 command_workspace_interval "1"
 
-command_cursor_command "yzx_control zellij status-cache-widget cursor"
+command_cursor_command "yazelix_bar_widget cursor"
 command_cursor_format "{stdout}"
 command_cursor_rendermode "dynamic"
 command_cursor_interval "10"
 
-command_codex_usage_command "yzx_control zellij status-cache-widget codex_usage"
+command_claude_usage_command "yazelix_bar_widget claude_usage --display both"
+command_claude_usage_format "#[fg=#bb88ff,bold]{stdout}"
+command_claude_usage_interval "10"
+
+command_codex_usage_command "yazelix_bar_widget codex_usage --display quota"
 command_codex_usage_format "#[fg=#bb88ff,bold]{stdout}"
 command_codex_usage_interval "10"
 
-command_cpu_command "nu __YAZELIX_RUNTIME_DIR__/configs/zellij/scripts/cpu_usage.nu"
+command_opencode_go_usage_command "yazelix_bar_widget opencode_go_usage --display both"
+command_opencode_go_usage_format "#[fg=#bb88ff,bold]{stdout}"
+command_opencode_go_usage_interval "10"
+
+command_cpu_command "yazelix_bar_widget cpu"
 command_cpu_format " #[fg=#ff6600][cpu {stdout}]"
 command_cpu_interval "5"
 
-command_ram_command "nu __YAZELIX_RUNTIME_DIR__/configs/zellij/scripts/ram_usage.nu"
+command_ram_command "yazelix_bar_widget ram"
 command_ram_format " #[fg=#ff6600][ram {stdout}]"
 command_ram_interval "5"
 
