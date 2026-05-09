@@ -109,9 +109,58 @@ AI usage widgets are first-class Yazelix value, but they are provider-driven:
 - Yazelix users can use existing cached provider commands from `yzx_control zellij status-cache-widget ...`
 - expensive provider polling should stay outside zjstatus hot loops or behind a cache
 
+## Standalone Fact Renderers
+
+The Rust crate also exposes renderer helpers for embedders that want Yazelix-style widget text without a Yazelix runtime:
+
+- `render_zjstatus_bar_segments` for editor, shell, terminal, custom text, and widget-tray placeholders
+- `render_zjstatus_tab_label_formats` for full and compact tab labels
+- `render_cursor_status_widget` for `yazelix-cursors`-compatible cursor facts
+- `render_codex_usage_status_widget` for cached Codex usage facts
+- `render_windowed_agent_usage_status_widget` for Claude, OpenCode Go, or another cached windowed provider
+
+Minimal cursor fact example:
+
+```rust
+use yazelix_bar::{CursorWidgetFacts, render_cursor_status_widget};
+
+let text = render_cursor_status_widget(&CursorWidgetFacts {
+    name: "reef".into(),
+    color: Some("#14d9a0".into()),
+    family: Some("mono".into()),
+    ..CursorWidgetFacts::default()
+});
+```
+
+Minimal cached provider example:
+
+```rust
+use yazelix_bar::{
+    AgentUsageDisplay, AgentUsagePeriod, WindowedAgentUsageFacts,
+    render_windowed_agent_usage_status_widget,
+};
+
+let text = render_windowed_agent_usage_status_widget(
+    "claude",
+    &WindowedAgentUsageFacts {
+        five_hour_tokens: Some(15_456_373),
+        weekly_tokens: Some(66_610_005),
+        five_hour_remaining_percent: Some(49),
+        weekly_remaining_percent: Some(80),
+        ..WindowedAgentUsageFacts::default()
+    },
+    &[AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly],
+    AgentUsageDisplay::Both,
+);
+```
+
+Those helpers are facts-in, styled-text-out. They do not read `~/.config/yazelix`, `~/.local/share/yazelix`, `yzx_control`, Yazelix session cache files, tokenusage, OpenCode databases, or pane-orchestrator state
+
 ## Yazelix-Specific Widgets
 
-Workspace, cursor, Claude, Codex, OpenCode Go, CPU, and RAM widgets remain Yazelix integration widgets when they rely on Yazelix runtime helpers or launch-scoped cache files
+Workspace, CPU, RAM, and Yazelix-managed cache readers remain Yazelix integration widgets when they rely on Yazelix runtime helpers or launch-scoped cache files
+
+Cursor, Claude, Codex, and OpenCode Go display rendering works without Yazelix when another program supplies the facts. Yazelix-only integration is the refresh and transport layer: cursor environment hydration, shared provider cache paths, tokenusage or database probing, freshness/backoff, `yzx_control`, and generated full-runtime layouts
 
 The full Yazelix runtime consumes this child repo for widget tray rendering, tab label formatting, and the integrated standalone package. The child repo packages `zjstatus.wasm` from its pinned `zjstatus` flake input so the package does not require manual artifact copying
 
