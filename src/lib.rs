@@ -126,6 +126,16 @@ pub struct StandaloneCommandWidget {
     pub interval: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CursorWidgetFacts {
+    pub name: String,
+    pub color: Option<String>,
+    pub family: Option<String>,
+    pub divider: Option<String>,
+    pub primary_color: Option<String>,
+    pub secondary_color: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StandalonePresetError {
     InvalidTabLabelMode { mode: String },
@@ -532,6 +542,77 @@ pub fn render_custom_text_segment(custom_text: &str) -> String {
     }
 }
 
+pub fn render_cursor_status_widget(facts: &CursorWidgetFacts) -> String {
+    let name = sanitize_cursor_name(&facts.name);
+    if name.is_empty() {
+        return String::new();
+    }
+
+    let color = facts
+        .color
+        .as_deref()
+        .and_then(normalize_hex_color)
+        .unwrap_or_else(|| "#00ff88".to_string());
+
+    if let Some((glyph, primary_color, secondary_color)) = cursor_split_preview(facts, &color) {
+        let glyph_segment = format!("#[fg={primary_color},bg={secondary_color},bold]{glyph}");
+        return render_cursor_status_widget_frame(&color, &glyph_segment, &name);
+    }
+
+    let glyph_segment = format!("#[fg={color},bold]█");
+    render_cursor_status_widget_frame(&color, &glyph_segment, &name)
+}
+
+fn cursor_split_preview(
+    facts: &CursorWidgetFacts,
+    fallback_primary_color: &str,
+) -> Option<(&'static str, String, String)> {
+    if facts.family.as_deref().map(str::trim) != Some("split") {
+        return None;
+    }
+
+    let glyph = match facts.divider.as_deref().map(str::trim)? {
+        "vertical" => "▌",
+        "horizontal" => "▀",
+        _ => return None,
+    };
+    let primary_color = facts
+        .primary_color
+        .as_deref()
+        .and_then(normalize_hex_color)
+        .unwrap_or_else(|| fallback_primary_color.to_string());
+    let secondary_color = facts
+        .secondary_color
+        .as_deref()
+        .and_then(normalize_hex_color)?;
+
+    Some((glyph, primary_color, secondary_color))
+}
+
+fn render_cursor_status_widget_frame(
+    accent_color: &str,
+    glyph_segment: &str,
+    name: &str,
+) -> String {
+    format!(
+        " #[fg={accent_color},bg=default,bold][{glyph_segment}#[fg={accent_color},bg=default,bold] {name}]"
+    )
+}
+
+fn normalize_hex_color(raw: &str) -> Option<String> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    let valid = normalized.len() == 7
+        && normalized.starts_with('#')
+        && normalized[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
+    valid.then_some(normalized)
+}
+
+fn sanitize_cursor_name(name: &str) -> String {
+    name.chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '/' | '.'))
+        .collect()
+}
+
 pub fn render_zjstatus_tab_label_formats(mode: &str) -> Result<TabLabelFormats, BarRenderError> {
     match mode {
         TAB_LABEL_MODE_FULL => Ok(TabLabelFormats {
@@ -700,6 +781,78 @@ mod tests {
             "#[fg=#ffff00,bold][verdant-lake] "
         );
         assert_eq!(render_custom_text_segment("   "), "");
+    }
+
+    // Defends: standalone cursor facts render the same mono and split previews Yazelix feeds into the status cache.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn renders_cursor_status_widget_from_explicit_facts() {
+        assert_eq!(
+            render_cursor_status_widget(&CursorWidgetFacts {
+                name: "reef".into(),
+                color: Some("#14D9A0".into()),
+                family: Some("mono".into()),
+                ..CursorWidgetFacts::default()
+            }),
+            " #[fg=#14d9a0,bg=default,bold][#[fg=#14d9a0,bold]█#[fg=#14d9a0,bg=default,bold] reef]"
+        );
+        assert_eq!(
+            render_cursor_status_widget(&CursorWidgetFacts {
+                name: "reef".into(),
+                color: Some("#00e6ff".into()),
+                family: Some("split".into()),
+                divider: Some("vertical".into()),
+                primary_color: Some("#00e6ff".into()),
+                secondary_color: Some("#00ff66".into()),
+            }),
+            " #[fg=#00e6ff,bg=default,bold][#[fg=#00e6ff,bg=#00ff66,bold]▌#[fg=#00e6ff,bg=default,bold] reef]"
+        );
+        assert_eq!(
+            render_cursor_status_widget(&CursorWidgetFacts {
+                name: "magma".into(),
+                color: Some("#ff1600".into()),
+                family: Some("split".into()),
+                divider: Some("horizontal".into()),
+                primary_color: Some("#ff1600".into()),
+                secondary_color: Some("#2a3340".into()),
+            }),
+            " #[fg=#ff1600,bg=default,bold][#[fg=#ff1600,bg=#2a3340,bold]▀#[fg=#ff1600,bg=default,bold] magma]"
+        );
+    }
+
+    // Regression: missing or unsafe cursor facts hide the widget or fall back without leaking markup-breaking text.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn cursor_status_widget_handles_missing_and_partial_facts() {
+        assert_eq!(
+            render_cursor_status_widget(&CursorWidgetFacts {
+                name: "n/a".into(),
+                ..CursorWidgetFacts::default()
+            }),
+            " #[fg=#00ff88,bg=default,bold][#[fg=#00ff88,bold]█#[fg=#00ff88,bg=default,bold] n/a]"
+        );
+        assert_eq!(
+            render_cursor_status_widget(&CursorWidgetFacts {
+                name: "bad #[fg=#fff] name".into(),
+                ..CursorWidgetFacts::default()
+            }),
+            " #[fg=#00ff88,bg=default,bold][#[fg=#00ff88,bold]█#[fg=#00ff88,bg=default,bold] badfgfffname]"
+        );
+        assert_eq!(
+            render_cursor_status_widget(&CursorWidgetFacts::default()),
+            ""
+        );
+        assert_eq!(
+            render_cursor_status_widget(&CursorWidgetFacts {
+                name: "magma".into(),
+                color: Some("#ff1600".into()),
+                family: Some("split".into()),
+                divider: Some("horizontal".into()),
+                primary_color: Some("#ff1600".into()),
+                secondary_color: Some("hot".into()),
+            }),
+            " #[fg=#ff1600,bg=default,bold][#[fg=#ff1600,bold]█#[fg=#ff1600,bg=default,bold] magma]"
+        );
     }
 
     // Regression: unsupported widget names must fail fast instead of leaving broken zjstatus placeholders.
