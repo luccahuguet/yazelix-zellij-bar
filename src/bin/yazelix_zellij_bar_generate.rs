@@ -1,7 +1,7 @@
 use std::env;
 use std::process;
 
-use yazelix_bar::{
+use yazelix_zellij_bar::{
     StandaloneCommandWidget, StandalonePresetOptions, generate_standalone_preset,
     standalone_part_from_token,
 };
@@ -109,7 +109,7 @@ fn find_command_widget_mut<'a>(
         })
 }
 
-fn parse_parts(value: &str) -> Result<Vec<yazelix_bar::StandalonePresetPart>, String> {
+fn parse_parts(value: &str) -> Result<Vec<yazelix_zellij_bar::StandalonePresetPart>, String> {
     if value.trim().is_empty() {
         return Ok(Vec::new());
     }
@@ -124,7 +124,7 @@ fn parse_parts(value: &str) -> Result<Vec<yazelix_bar::StandalonePresetPart>, St
 
 fn help_text() -> String {
     [
-        "Usage: yazelix_bar_generate [options]",
+        "Usage: yazelix_zellij_bar_generate [options]",
         "",
         "Options:",
         "  --wasm-url URL                 zjstatus wasm URL used in the plugin block",
@@ -142,7 +142,7 @@ fn help_text() -> String {
         "  --command-interval NAME=SECS   override command widget interval",
         "",
         "Example:",
-        "  yazelix_bar_generate --right session,datetime,command:host,brand --command 'host=hostname -s'",
+        "  yazelix_zellij_bar_generate --right session,datetime,command:host,brand --command 'host=hostname -s'",
         "",
     ]
     .join("\n")

@@ -1,10 +1,10 @@
 // Complete plain Zellij layout for bar-owned widgets.
-// Replace the zjstatus.wasm path with the installed yazelix_bar package path.
+// Replace the zjstatus.wasm path with the installed yazelix_zellij_bar package path.
 // This file does not require Yazelix, yzx_control, Nushell, or Yazelix runtime cache paths.
 
 layout {
     pane size=1 borderless=true {
-        plugin location="file:/absolute/path/to/share/yazelix_bar/zjstatus.wasm" {
+        plugin location="file:/absolute/path/to/share/yazelix_zellij_bar/zjstatus.wasm" {
             format_left   "{mode} {tabs}"
             format_center ""
             format_right  "#[fg=#ff0088,bold]{session}{command_cursor}{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]YAZELIX BAR "
@@ -37,28 +37,28 @@ layout {
             datetime "#[fg=#bb88ff,bold] {format} "
             datetime_format "%H:%M %d/%m"
 
-            command_cursor_command "yazelix_bar_widget cursor --facts $HOME/.config/yazelix_bar/cursor.env"
+            command_cursor_command "yazelix_zellij_bar_widget cursor"
             command_cursor_format "{stdout}"
             command_cursor_rendermode "dynamic"
             command_cursor_interval "10"
 
-            command_claude_usage_command "yazelix_bar_widget claude_usage --cache $HOME/.cache/yazelix_bar/claude_usage_cache_v1.json --display both"
+            command_claude_usage_command "yazelix_zellij_bar_widget claude"
             command_claude_usage_format "#[fg=#bb88ff,bold]{stdout}"
             command_claude_usage_interval "10"
 
-            command_codex_usage_command "yazelix_bar_widget codex_usage --cache $HOME/.cache/yazelix_bar/codex_usage_cache_v2.json --display quota"
+            command_codex_usage_command "yazelix_zellij_bar_widget codex"
             command_codex_usage_format "#[fg=#bb88ff,bold]{stdout}"
             command_codex_usage_interval "10"
 
-            command_opencode_go_usage_command "yazelix_bar_widget opencode_go_usage --cache $HOME/.cache/yazelix_bar/opencode_go_usage_cache_v1.json --display both"
+            command_opencode_go_usage_command "yazelix_zellij_bar_widget opencode_go"
             command_opencode_go_usage_format "#[fg=#bb88ff,bold]{stdout}"
             command_opencode_go_usage_interval "10"
 
-            command_cpu_command "yazelix_bar_widget cpu"
+            command_cpu_command "yazelix_zellij_bar_widget cpu"
             command_cpu_format " #[fg=#ff6600][cpu {stdout}]"
             command_cpu_interval "5"
 
-            command_ram_command "yazelix_bar_widget ram"
+            command_ram_command "yazelix_zellij_bar_widget ram"
             command_ram_format " #[fg=#ff6600][ram {stdout}]"
             command_ram_interval "5"
         }

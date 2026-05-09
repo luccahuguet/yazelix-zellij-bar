@@ -7,37 +7,37 @@
 The flake package is:
 
 ```bash
-nix build github:luccahuguet/yazelix-bar#yazelix_bar
-nix profile install github:luccahuguet/yazelix-bar#yazelix_bar
+nix build github:luccahuguet/yazelix-zellij-bar#yazelix_zellij_bar
+nix profile install github:luccahuguet/yazelix-zellij-bar#yazelix_zellij_bar
 ```
 
 The package installs:
 
-- `bin/yazelix_bar_generate`
-- `bin/yazelix_bar_widget`
-- `share/yazelix_bar/zjstatus.wasm`
-- `share/yazelix_bar/yazelix_bar.kdl`
-- `share/yazelix_bar/yazelix_bar.template.kdl`
-- `share/yazelix_bar/generated/yazelix_bar.kdl`
-- `share/yazelix_bar/examples/custom_command_widgets.kdl`
-- `share/yazelix_bar/examples/standalone_zellij_layout.kdl`
-- `share/yazelix_bar/examples/yazelix_runtime_widgets.kdl`
-- `share/doc/yazelix_bar/README.md`
+- `bin/yazelix_zellij_bar_generate`
+- `bin/yazelix_zellij_bar_widget`
+- `share/yazelix_zellij_bar/zjstatus.wasm`
+- `share/yazelix_zellij_bar/yazelix_zellij_bar.kdl`
+- `share/yazelix_zellij_bar/yazelix_zellij_bar.template.kdl`
+- `share/yazelix_zellij_bar/generated/yazelix_zellij_bar.kdl`
+- `share/yazelix_zellij_bar/examples/custom_command_widgets.kdl`
+- `share/yazelix_zellij_bar/examples/standalone_zellij_layout.kdl`
+- `share/yazelix_zellij_bar/examples/yazelix_runtime_widgets.kdl`
+- `share/doc/yazelix_zellij_bar/README.md`
 
-Use `yazelix_bar.kdl` as a Zellij layout plugin block. The template keeps `__YAZELIX_BAR_ZJSTATUS_WASM__` for users who want to substitute a different pinned `zjstatus.wasm`. The generated preset is emitted by `yazelix_bar_generate` with package-local paths. The example snippets are small blocks to copy into the plugin body rather than alternate full presets
+Use `yazelix_zellij_bar.kdl` as a Zellij layout plugin block. The template keeps `__YAZELIX_ZELLIJ_BAR_ZJSTATUS_WASM__` for users who want to substitute a different pinned `zjstatus.wasm`. The generated preset is emitted by `yazelix_zellij_bar_generate` with package-local paths. The example snippets are small blocks to copy into the plugin body rather than alternate full presets
 
 ## Minimal Zellij Layout Snippet
 
 ```kdl
 layout {
     pane size=1 borderless=true {
-        // Paste the contents of share/yazelix_bar/yazelix_bar.kdl here
+        // Paste the contents of share/yazelix_zellij_bar/yazelix_zellij_bar.kdl here
     }
     pane
 }
 ```
 
-The packaged `yazelix_bar.kdl` already points at the package's `zjstatus.wasm` with a `file:` URL, and that wasm is installed from the repo's pinned `zjstatus` flake input
+The packaged `yazelix_zellij_bar.kdl` already points at the package's `zjstatus.wasm` with a `file:` URL, and that wasm is installed from the repo's pinned `zjstatus` flake input
 
 ## Generic Boundary
 
@@ -88,42 +88,42 @@ command_host_format " #[fg=#00ff88,bold][{stdout}]"
 command_host_interval "30"
 ```
 
-The packaged `share/yazelix_bar/examples/custom_command_widgets.kdl` contains a slightly larger version of this pattern
+The packaged `share/yazelix_zellij_bar/examples/custom_command_widgets.kdl` contains a slightly larger version of this pattern
 
 ## Complete Standalone Widget Layout
 
-`share/yazelix_bar/examples/standalone_zellij_layout.kdl` is a complete plain Zellij layout that uses every bar-owned non-workspace widget:
+`share/yazelix_zellij_bar/examples/standalone_zellij_layout.kdl` is a complete plain Zellij layout that uses every bar-owned non-workspace widget:
 
 ```kdl
 layout {
     pane size=1 borderless=true {
-        plugin location="file:/absolute/path/to/share/yazelix_bar/zjstatus.wasm" {
+        plugin location="file:/absolute/path/to/share/yazelix_zellij_bar/zjstatus.wasm" {
             format_left "{mode} {tabs}"
             format_center ""
             format_right "#[fg=#ff0088,bold]{session}{command_cursor}{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]YAZELIX BAR "
 
-            command_cursor_command "yazelix_bar_widget cursor --facts $HOME/.config/yazelix_bar/cursor.env"
+            command_cursor_command "yazelix_zellij_bar_widget cursor"
             command_cursor_format "{stdout}"
             command_cursor_rendermode "dynamic"
             command_cursor_interval "10"
 
-            command_claude_usage_command "yazelix_bar_widget claude_usage --cache $HOME/.cache/yazelix_bar/claude_usage_cache_v1.json --display both"
+            command_claude_usage_command "yazelix_zellij_bar_widget claude"
             command_claude_usage_format "#[fg=#bb88ff,bold]{stdout}"
             command_claude_usage_interval "10"
 
-            command_codex_usage_command "yazelix_bar_widget codex_usage --cache $HOME/.cache/yazelix_bar/codex_usage_cache_v2.json --display quota"
+            command_codex_usage_command "yazelix_zellij_bar_widget codex"
             command_codex_usage_format "#[fg=#bb88ff,bold]{stdout}"
             command_codex_usage_interval "10"
 
-            command_opencode_go_usage_command "yazelix_bar_widget opencode_go_usage --cache $HOME/.cache/yazelix_bar/opencode_go_usage_cache_v1.json --display both"
+            command_opencode_go_usage_command "yazelix_zellij_bar_widget opencode_go"
             command_opencode_go_usage_format "#[fg=#bb88ff,bold]{stdout}"
             command_opencode_go_usage_interval "10"
 
-            command_cpu_command "yazelix_bar_widget cpu"
+            command_cpu_command "yazelix_zellij_bar_widget cpu"
             command_cpu_format " #[fg=#ff6600][cpu {stdout}]"
             command_cpu_interval "5"
 
-            command_ram_command "yazelix_bar_widget ram"
+            command_ram_command "yazelix_zellij_bar_widget ram"
             command_ram_format " #[fg=#ff6600][ram {stdout}]"
             command_ram_interval "5"
         }
@@ -137,22 +137,22 @@ Replace the `zjstatus.wasm` path with the installed package path. If you install
 Minimal cursor fact file:
 
 ```bash
-mkdir -p "$HOME/.config/yazelix_bar"
-cat > "$HOME/.config/yazelix_bar/cursor.env" <<'EOF'
+mkdir -p "$HOME/.config/yazelix_zellij_bar"
+cat > "$HOME/.config/yazelix_zellij_bar/cursor.env" <<'EOF'
 YAZELIX_CURSOR_NAME=reef
 YAZELIX_CURSOR_COLOR=#14d9a0
 YAZELIX_CURSOR_FAMILY=mono
 EOF
 ```
 
-Provider widgets maintain their own cache, lock, freshness, and error-backoff files under the `--cache` path. Standalone configs should pass `--cache` explicitly; Yazelix may omit it because the full runtime exports `YAZELIX_STATUS_BAR_CACHE_PATH`
+Provider widgets maintain their own cache, lock, freshness, and error-backoff files under `$XDG_CACHE_HOME/yazelix_zellij_bar` or `$HOME/.cache/yazelix_zellij_bar`. Use `--cache` only when overriding the default. Yazelix may omit it because the full runtime exports `YAZELIX_STATUS_BAR_CACHE_PATH`
 
 ## Preset Generator
 
-Use `yazelix_bar_generate` when brand text, colors, widget order, or generic command widgets should come from structured options instead of manual KDL edits
+Use `yazelix_zellij_bar_generate` when brand text, colors, widget order, or generic command widgets should come from structured options instead of manual KDL edits
 
 ```bash
-yazelix_bar_generate \
+yazelix_zellij_bar_generate \
   --wasm-url "file:/path/to/zjstatus.wasm" \
   --brand-label "DEV BAR" \
   --right "session,datetime,command:host,brand" \
@@ -168,7 +168,7 @@ The `--left`, `--center`, and `--right` flags accept comma-separated tokens:
 - `brand`
 - `command:name`
 
-Command widgets use `--command name=command`, with optional `--command-format name=format` and `--command-interval name=seconds`. Use this for custom commands that are not built into `yazelix_bar_widget`
+Command widgets use `--command name=command`, with optional `--command-format name=format` and `--command-interval name=seconds`. Use this for custom commands that are not built into `yazelix_zellij_bar_widget`
 
 ## Standalone Fact Renderers
 
@@ -183,7 +183,7 @@ The Rust crate also exposes renderer helpers for embedders that want Yazelix-sty
 Minimal cursor fact example:
 
 ```rust
-use yazelix_bar::{CursorWidgetFacts, render_cursor_status_widget};
+use yazelix_zellij_bar::{CursorWidgetFacts, render_cursor_status_widget};
 
 let text = render_cursor_status_widget(&CursorWidgetFacts {
     name: "reef".into(),
@@ -196,7 +196,7 @@ let text = render_cursor_status_widget(&CursorWidgetFacts {
 Minimal cached provider example:
 
 ```rust
-use yazelix_bar::{
+use yazelix_zellij_bar::{
     AgentUsageDisplay, AgentUsagePeriod, WindowedAgentUsageFacts,
     render_windowed_agent_usage_status_widget,
 };
@@ -227,13 +227,13 @@ The full Yazelix runtime consumes this child repo for widget tray rendering, tab
 
 The Rust API also renders Yazelix runtime command-widget definitions from resolved helper paths. Yazelix core still owns workspace facts, session config, and runtime path resolution; this repo owns non-workspace widget behavior and the generic zjstatus command-definition KDL shape
 
-When the main Yazelix repo forwards `#yazelix_bar`, it may make this repo's `zjstatus` input follow Yazelix's own `zjstatus` pin. Standalone users get the pin recorded in this repo's `flake.lock`
+When the main Yazelix repo forwards `#yazelix_zellij_bar`, it may make this repo's `zjstatus` input follow Yazelix's own `zjstatus` pin. Standalone users get the pin recorded in this repo's `flake.lock`
 
-Use `share/yazelix_bar/examples/yazelix_runtime_widgets.kdl` only inside a full Yazelix runtime or after replacing the Yazelix-only workspace/version helpers. Use `share/yazelix_bar/examples/standalone_zellij_layout.kdl` for plain Zellij
+Use `share/yazelix_zellij_bar/examples/yazelix_runtime_widgets.kdl` only inside a full Yazelix runtime or after replacing the Yazelix-only workspace/version helpers. Use `share/yazelix_zellij_bar/examples/standalone_zellij_layout.kdl` for plain Zellij
 
 ## Current Limit
 
-Zellij/zjstatus presets do not currently have a native include or variables layer. Use the generator for structured brand, color, order, and command-widget changes; copy `yazelix_bar.template.kdl` only when editing lower-level zjstatus keys that the generator does not expose
+Zellij/zjstatus presets do not currently have a native include or variables layer. Use the generator for structured brand, color, order, and command-widget changes; copy `yazelix_zellij_bar.template.kdl` only when editing lower-level zjstatus keys that the generator does not expose
 
 ## Release Process
 
@@ -241,7 +241,7 @@ Maintainers update the pinned zjstatus input deliberately, then validate:
 
 ```bash
 nix flake lock --update-input zjstatus
-nix build .#yazelix_bar
+nix build .#yazelix_zellij_bar
 cargo test
 ```
 

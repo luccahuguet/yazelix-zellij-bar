@@ -1,4 +1,4 @@
-plugin location="__YAZELIX_BAR_ZJSTATUS_WASM__" {
+plugin location="__YAZELIX_ZELLIJ_BAR_ZJSTATUS_WASM__" {
     // Reorder built-in zjstatus widgets by editing format_left/center/right.
     // Common generic placeholders: {mode}, {tabs}, {session}, {datetime}
     format_left   "{mode} {tabs}"

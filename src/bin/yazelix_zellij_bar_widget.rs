@@ -14,16 +14,16 @@ fn main() {
 fn run(args: Vec<String>) -> Result<String, String> {
     let Some((command, rest)) = args.split_first() else {
         return Err(
-            "expected widget command: claude_usage, codex_usage, cursor, cpu, opencode_go_usage, or ram".to_string(),
+            "expected widget command: claude, codex, cursor, cpu, opencode_go, or ram".to_string(),
         );
     };
     match command.as_str() {
         "cursor" => run_cursor(rest),
-        "claude_usage" => run_claude_usage(rest),
-        "codex_usage" => run_codex_usage(rest),
-        "opencode_go_usage" => run_opencode_go_usage(rest),
-        "cpu" if rest.is_empty() => Ok(yazelix_bar::current_cpu_usage_widget_text()),
-        "ram" if rest.is_empty() => Ok(yazelix_bar::current_ram_usage_widget_text()),
+        "claude" => run_claude_usage(rest),
+        "codex" => run_codex_usage(rest),
+        "opencode_go" => run_opencode_go_usage(rest),
+        "cpu" if rest.is_empty() => Ok(yazelix_zellij_bar::current_cpu_usage_widget_text()),
+        "ram" if rest.is_empty() => Ok(yazelix_zellij_bar::current_ram_usage_widget_text()),
         "cpu" | "ram" => Err(format!("{command} accepts no arguments")),
         _ => Err(format!("unknown widget command: {command}")),
     }
@@ -31,16 +31,36 @@ fn run(args: Vec<String>) -> Result<String, String> {
 
 fn run_cursor(args: &[String]) -> Result<String, String> {
     match args {
-        [] => Ok(yazelix_bar::cursor_widget_text_from_env()),
-        [flag, path] if flag == "--facts" => yazelix_bar::cursor_widget_text_from_fact_file(path)
-            .map_err(|error| format!("failed to read cursor fact file {path}: {error}")),
-        _ => Err("cursor usage: yazelix_bar_widget cursor [--facts <path>]".to_string()),
+        [] => {
+            let rendered = yazelix_zellij_bar::cursor_widget_text_from_env();
+            if !rendered.is_empty() {
+                return Ok(rendered);
+            }
+            let Some(path) = default_config_path("cursor.env") else {
+                return Ok(rendered);
+            };
+            if path.is_file() {
+                yazelix_zellij_bar::cursor_widget_text_from_fact_file(&path).map_err(|error| {
+                    format!(
+                        "failed to read cursor fact file {}: {error}",
+                        path.display()
+                    )
+                })
+            } else {
+                Ok(rendered)
+            }
+        }
+        [flag, path] if flag == "--facts" => {
+            yazelix_zellij_bar::cursor_widget_text_from_fact_file(path)
+                .map_err(|error| format!("failed to read cursor fact file {path}: {error}"))
+        }
+        _ => Err("cursor usage: yazelix_zellij_bar_widget cursor [--facts <path>]".to_string()),
     }
 }
 
 fn run_claude_usage(args: &[String]) -> Result<String, String> {
     let mut cache_path = None;
-    let mut display = yazelix_bar::AgentUsageDisplay::Both;
+    let mut display = yazelix_zellij_bar::AgentUsageDisplay::Both;
     let mut max_age_seconds = 600;
     let mut error_backoff_seconds = 1_800;
     let mut timeout_ms = 5_000;
@@ -74,11 +94,12 @@ fn run_claude_usage(args: &[String]) -> Result<String, String> {
         }
     }
     let cache_path = cache_path
-        .or_else(yazelix_bar::claude_usage_cache_path_from_env)
+        .or_else(yazelix_zellij_bar::claude_usage_cache_path_from_env)
+        .or_else(|| default_cache_path("claude_usage_cache_v1.json"))
         .ok_or_else(|| {
-            "claude_usage usage: yazelix_bar_widget claude_usage [--cache <path>] [--display quota|token|both]".to_string()
+            "claude usage: yazelix_zellij_bar_widget claude [--cache <path>] [--display quota|token|both]".to_string()
         })?;
-    yazelix_bar::claude_usage_widget_text(yazelix_bar::ClaudeUsageWidgetOptions {
+    yazelix_zellij_bar::claude_usage_widget_text(yazelix_zellij_bar::ClaudeUsageWidgetOptions {
         cache_path: &cache_path,
         path_var: env::var_os("PATH").as_deref(),
         now_unix_seconds: unix_time_seconds(),
@@ -91,7 +112,7 @@ fn run_claude_usage(args: &[String]) -> Result<String, String> {
 
 fn run_codex_usage(args: &[String]) -> Result<String, String> {
     let mut cache_path = None;
-    let mut display = yazelix_bar::AgentUsageDisplay::Quota;
+    let mut display = yazelix_zellij_bar::AgentUsageDisplay::Quota;
     let mut max_age_seconds = 600;
     let mut error_backoff_seconds = 1_800;
     let mut timeout_ms = 5_000;
@@ -125,11 +146,12 @@ fn run_codex_usage(args: &[String]) -> Result<String, String> {
         }
     }
     let cache_path = cache_path
-        .or_else(yazelix_bar::codex_usage_cache_path_from_env)
+        .or_else(yazelix_zellij_bar::codex_usage_cache_path_from_env)
+        .or_else(|| default_cache_path("codex_usage_cache_v2.json"))
         .ok_or_else(|| {
-            "codex_usage usage: yazelix_bar_widget codex_usage [--cache <path>] [--display quota|token|both]".to_string()
+            "codex usage: yazelix_zellij_bar_widget codex [--cache <path>] [--display quota|token|both]".to_string()
         })?;
-    yazelix_bar::codex_usage_widget_text(yazelix_bar::CodexUsageWidgetOptions {
+    yazelix_zellij_bar::codex_usage_widget_text(yazelix_zellij_bar::CodexUsageWidgetOptions {
         cache_path: &cache_path,
         path_var: env::var_os("PATH").as_deref(),
         now_unix_seconds: unix_time_seconds(),
@@ -143,7 +165,7 @@ fn run_codex_usage(args: &[String]) -> Result<String, String> {
 fn run_opencode_go_usage(args: &[String]) -> Result<String, String> {
     let mut cache_path = None;
     let mut db_paths = Vec::new();
-    let mut display = yazelix_bar::AgentUsageDisplay::Both;
+    let mut display = yazelix_zellij_bar::AgentUsageDisplay::Both;
     let mut max_age_seconds = 600;
     let mut error_backoff_seconds = 1_800;
     let mut iter = args.iter();
@@ -179,28 +201,31 @@ fn run_opencode_go_usage(args: &[String]) -> Result<String, String> {
         }
     }
     let cache_path = cache_path
-        .or_else(yazelix_bar::opencode_go_usage_cache_path_from_env)
+        .or_else(yazelix_zellij_bar::opencode_go_usage_cache_path_from_env)
+        .or_else(|| default_cache_path("opencode_go_usage_cache_v1.json"))
         .ok_or_else(|| {
-            "opencode_go_usage usage: yazelix_bar_widget opencode_go_usage [--cache <path>] [--db <path>] [--display quota|token|both]".to_string()
+            "opencode_go usage: yazelix_zellij_bar_widget opencode_go [--cache <path>] [--db <path>] [--display quota|token|both]".to_string()
         })?;
     if db_paths.is_empty() {
-        db_paths = yazelix_bar::opencode_db_candidates_from_env();
+        db_paths = yazelix_zellij_bar::opencode_db_candidates_from_env();
     }
-    yazelix_bar::opencode_go_usage_widget_text(yazelix_bar::OpenCodeGoUsageWidgetOptions {
-        cache_path: &cache_path,
-        db_paths: &db_paths,
-        now_unix_seconds: unix_time_seconds(),
-        max_age_seconds,
-        error_backoff_seconds,
-        display,
-    })
+    yazelix_zellij_bar::opencode_go_usage_widget_text(
+        yazelix_zellij_bar::OpenCodeGoUsageWidgetOptions {
+            cache_path: &cache_path,
+            db_paths: &db_paths,
+            now_unix_seconds: unix_time_seconds(),
+            max_age_seconds,
+            error_backoff_seconds,
+            display,
+        },
+    )
 }
 
-fn parse_agent_usage_display(raw: &str) -> Result<yazelix_bar::AgentUsageDisplay, String> {
+fn parse_agent_usage_display(raw: &str) -> Result<yazelix_zellij_bar::AgentUsageDisplay, String> {
     match raw {
-        "both" => Ok(yazelix_bar::AgentUsageDisplay::Both),
-        "token" | "tokens" => Ok(yazelix_bar::AgentUsageDisplay::Token),
-        "quota" => Ok(yazelix_bar::AgentUsageDisplay::Quota),
+        "both" => Ok(yazelix_zellij_bar::AgentUsageDisplay::Both),
+        "token" | "tokens" => Ok(yazelix_zellij_bar::AgentUsageDisplay::Token),
+        "quota" => Ok(yazelix_zellij_bar::AgentUsageDisplay::Quota),
         _ => Err(format!("invalid display mode: {raw}")),
     }
 }
@@ -217,4 +242,25 @@ fn unix_time_seconds() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0)
+}
+
+fn default_cache_path(file_name: &str) -> Option<std::path::PathBuf> {
+    xdg_base_path("XDG_CACHE_HOME", ".cache")
+        .map(|base| base.join("yazelix_zellij_bar").join(file_name))
+}
+
+fn default_config_path(file_name: &str) -> Option<std::path::PathBuf> {
+    xdg_base_path("XDG_CONFIG_HOME", ".config")
+        .map(|base| base.join("yazelix_zellij_bar").join(file_name))
+}
+
+fn xdg_base_path(env_name: &str, home_fallback: &str) -> Option<std::path::PathBuf> {
+    env::var_os(env_name)
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            env::var_os("HOME")
+                .filter(|value| !value.is_empty())
+                .map(|home| std::path::PathBuf::from(home).join(home_fallback))
+        })
 }
