@@ -1267,6 +1267,54 @@ mod tests {
         );
     }
 
+    // Defends: OpenCode Go standalone rendering supports configured 5h/week/month windows and missing-cache hiding.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn renders_windowed_agent_usage_widget_for_opencode_go_facts() {
+        let facts = WindowedAgentUsageFacts {
+            five_hour_tokens: Some(138_424_632),
+            weekly_tokens: Some(1_335_519_960),
+            monthly_tokens: Some(2_220_000_000),
+            five_hour_remaining_percent: Some(49),
+            weekly_remaining_percent: Some(80),
+            monthly_remaining_percent: Some(70),
+            ..WindowedAgentUsageFacts::default()
+        };
+        let periods = [
+            AgentUsagePeriod::FiveHour,
+            AgentUsagePeriod::Weekly,
+            AgentUsagePeriod::Monthly,
+        ];
+
+        assert_eq!(
+            render_windowed_agent_usage_status_widget(
+                "go",
+                &facts,
+                &periods,
+                AgentUsageDisplay::Both
+            ),
+            " [go 5h|138M|49% wk|1.34B|80% mo|2.22B|70%]"
+        );
+        assert_eq!(
+            render_windowed_agent_usage_status_widget(
+                "go",
+                &facts,
+                &periods,
+                AgentUsageDisplay::Token
+            ),
+            " [go 5h|138M wk|1.34B mo|2.22B]"
+        );
+        assert_eq!(
+            render_windowed_agent_usage_status_widget(
+                "go",
+                &WindowedAgentUsageFacts::default(),
+                &periods,
+                AgentUsageDisplay::Both
+            ),
+            ""
+        );
+    }
+
     // Regression: unsupported widget names must fail fast instead of leaving broken zjstatus placeholders.
     // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
     #[test]
