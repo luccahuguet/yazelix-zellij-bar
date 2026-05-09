@@ -137,6 +137,13 @@ pub struct CursorWidgetFacts {
     pub secondary_color: Option<String>,
 }
 
+const CURSOR_NAME_FACT: &str = "YAZELIX_CURSOR_NAME";
+const CURSOR_COLOR_FACT: &str = "YAZELIX_CURSOR_COLOR";
+const CURSOR_FAMILY_FACT: &str = "YAZELIX_CURSOR_FAMILY";
+const CURSOR_DIVIDER_FACT: &str = "YAZELIX_CURSOR_DIVIDER";
+const CURSOR_PRIMARY_COLOR_FACT: &str = "YAZELIX_CURSOR_PRIMARY_COLOR";
+const CURSOR_SECONDARY_COLOR_FACT: &str = "YAZELIX_CURSOR_SECONDARY_COLOR";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentUsageDisplay {
     Both,
@@ -601,6 +608,41 @@ pub fn render_cursor_status_widget(facts: &CursorWidgetFacts) -> String {
     render_cursor_status_widget_frame(&color, &glyph_segment, &name)
 }
 
+pub fn cursor_widget_text_from_env() -> String {
+    render_cursor_status_widget(&cursor_widget_facts_from_pairs(std::env::vars()))
+}
+
+pub fn cursor_widget_text_from_fact_file(
+    path: impl AsRef<std::path::Path>,
+) -> std::io::Result<String> {
+    let raw = std::fs::read_to_string(path)?;
+    Ok(render_cursor_status_widget(
+        &cursor_widget_facts_from_pairs(cursor_fact_file_pairs(&raw)),
+    ))
+}
+
+pub fn cursor_widget_facts_from_pairs(
+    pairs: impl IntoIterator<Item = (String, String)>,
+) -> CursorWidgetFacts {
+    let mut facts = CursorWidgetFacts::default();
+    for (key, value) in pairs {
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        match key.trim() {
+            CURSOR_NAME_FACT => facts.name = value.to_string(),
+            CURSOR_COLOR_FACT => facts.color = Some(value.to_string()),
+            CURSOR_FAMILY_FACT => facts.family = Some(value.to_string()),
+            CURSOR_DIVIDER_FACT => facts.divider = Some(value.to_string()),
+            CURSOR_PRIMARY_COLOR_FACT => facts.primary_color = Some(value.to_string()),
+            CURSOR_SECONDARY_COLOR_FACT => facts.secondary_color = Some(value.to_string()),
+            _ => {}
+        }
+    }
+    facts
+}
+
 pub fn current_cpu_usage_widget_text() -> String {
     let Some(before) = std::fs::read_to_string("/proc/stat")
         .ok()
@@ -684,6 +726,17 @@ fn format_percent(percent: Option<u64>) -> String {
     percent
         .map(|percent| format!("{percent}%"))
         .unwrap_or_else(|| "??%".to_string())
+}
+
+fn cursor_fact_file_pairs(raw: &str) -> impl Iterator<Item = (String, String)> + '_ {
+    raw.lines().filter_map(|line| {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            return None;
+        }
+        let (key, value) = line.split_once('=')?;
+        Some((key.trim().to_string(), value.trim().to_string()))
+    })
 }
 
 pub fn render_codex_usage_status_widget(
@@ -1190,6 +1243,42 @@ MemAvailable:   250000 kB
         assert_eq!(
             ram_usage_percent_from_meminfo("MemTotal: 10 kB\nMemAvailable: 20 kB\n"),
             None
+        );
+    }
+
+    // Defends: standalone cursor rendering accepts Yazelix-compatible launch facts without importing Yazelix runtime code.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn cursor_widget_facts_render_from_env_pairs() {
+        let rendered = render_cursor_status_widget(&cursor_widget_facts_from_pairs([
+            (CURSOR_NAME_FACT.to_string(), "reef".to_string()),
+            (CURSOR_COLOR_FACT.to_string(), "#00ff66".to_string()),
+            (CURSOR_FAMILY_FACT.to_string(), "split".to_string()),
+            (CURSOR_DIVIDER_FACT.to_string(), "vertical".to_string()),
+            (CURSOR_PRIMARY_COLOR_FACT.to_string(), "#00e6ff".to_string()),
+            (
+                CURSOR_SECONDARY_COLOR_FACT.to_string(),
+                "#00ff66".to_string(),
+            ),
+        ]));
+
+        assert_eq!(
+            rendered,
+            " #[fg=#00ff66,bg=default,bold][#[fg=#00e6ff,bg=#00ff66,bold]▌#[fg=#00ff66,bg=default,bold] reef]"
+        );
+    }
+
+    // Defends: standalone users can feed cursor facts from a small path-based fact file instead of Yazelix session env.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn cursor_widget_facts_parse_key_value_fact_file() {
+        let facts = cursor_widget_facts_from_pairs(cursor_fact_file_pairs(
+            "\n# cursor facts\nYAZELIX_CURSOR_NAME = ember\nYAZELIX_CURSOR_COLOR = #ff8800\nignored=value\n",
+        ));
+
+        assert_eq!(
+            render_cursor_status_widget(&facts),
+            " #[fg=#ff8800,bg=default,bold][#[fg=#ff8800,bold]█#[fg=#ff8800,bg=default,bold] ember]"
         );
     }
 
