@@ -14,4 +14,8 @@ categories = ["command-line-utilities"]
 name = "yazelix_bar_generate"
 path = "src/bin/yazelix_bar_generate.rs"
 
+[[bin]]
+name = "yazelix_bar_widget"
+path = "src/bin/yazelix_bar_widget.rs"
+
 [dependencies]

@@ -64,6 +64,7 @@ pub struct BarRenderData {
 pub struct YazelixRuntimeCommandPaths {
     pub nu_bin: String,
     pub yzx_control_bin: String,
+    pub yazelix_bar_widget_bin: String,
     pub runtime_dir: String,
 }
 
@@ -196,7 +197,7 @@ struct YazelixRuntimeCommandWidget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum YazelixRuntimeCommand {
     StatusCacheWidget(&'static str),
-    RuntimeNuScript(&'static str),
+    BarWidget(&'static str),
     RuntimeNuConstantsVersion,
 }
 
@@ -238,14 +239,14 @@ const YAZELIX_RUNTIME_COMMAND_WIDGETS: &[YazelixRuntimeCommandWidget] = &[
     },
     YazelixRuntimeCommandWidget {
         name: "cpu",
-        command: YazelixRuntimeCommand::RuntimeNuScript("configs/zellij/scripts/cpu_usage.nu"),
+        command: YazelixRuntimeCommand::BarWidget("cpu"),
         format: " #[fg=#ff6600][cpu {stdout}]",
         render_mode: None,
         interval: "5",
     },
     YazelixRuntimeCommandWidget {
         name: "ram",
-        command: YazelixRuntimeCommand::RuntimeNuScript("configs/zellij/scripts/ram_usage.nu"),
+        command: YazelixRuntimeCommand::BarWidget("ram"),
         format: " #[fg=#ff6600][ram {stdout}]",
         render_mode: None,
         interval: "5",
@@ -341,9 +342,7 @@ impl YazelixRuntimeCommand {
                     paths.yzx_control_bin
                 )
             }
-            Self::RuntimeNuScript(relative_path) => {
-                format!("{} {}/{relative_path}", paths.nu_bin, paths.runtime_dir)
-            }
+            Self::BarWidget(widget) => format!("{} {widget}", paths.yazelix_bar_widget_bin),
             Self::RuntimeNuConstantsVersion => format!(
                 "{} -c 'use {}/nushell/scripts/utils/constants.nu YAZELIX_VERSION; $YAZELIX_VERSION'",
                 paths.nu_bin, paths.runtime_dir
@@ -600,6 +599,91 @@ pub fn render_cursor_status_widget(facts: &CursorWidgetFacts) -> String {
 
     let glyph_segment = format!("#[fg={color},bold]█");
     render_cursor_status_widget_frame(&color, &glyph_segment, &name)
+}
+
+pub fn current_cpu_usage_widget_text() -> String {
+    let Some(before) = std::fs::read_to_string("/proc/stat")
+        .ok()
+        .and_then(|raw| parse_proc_stat_cpu_totals(&raw))
+    else {
+        return "??%".to_string();
+    };
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let Some(after) = std::fs::read_to_string("/proc/stat")
+        .ok()
+        .and_then(|raw| parse_proc_stat_cpu_totals(&raw))
+    else {
+        return "??%".to_string();
+    };
+    format_percent(cpu_usage_percent_from_totals(before, after))
+}
+
+pub fn current_ram_usage_widget_text() -> String {
+    format_percent(
+        std::fs::read_to_string("/proc/meminfo")
+            .ok()
+            .and_then(|raw| ram_usage_percent_from_meminfo(&raw)),
+    )
+}
+
+pub fn cpu_usage_percent_from_proc_stat(before: &str, after: &str) -> Option<u64> {
+    cpu_usage_percent_from_totals(
+        parse_proc_stat_cpu_totals(before)?,
+        parse_proc_stat_cpu_totals(after)?,
+    )
+}
+
+pub fn ram_usage_percent_from_meminfo(raw: &str) -> Option<u64> {
+    let total = meminfo_kib_value(raw, "MemTotal:")?;
+    let available = meminfo_kib_value(raw, "MemAvailable:")?;
+    if total == 0 || available > total {
+        return None;
+    }
+    Some(round_percent(total - available, total))
+}
+
+fn parse_proc_stat_cpu_totals(raw: &str) -> Option<(u64, u64)> {
+    let line = raw.lines().find(|line| line.starts_with("cpu "))?;
+    let values = line
+        .split_whitespace()
+        .skip(1)
+        .map(str::parse::<u64>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    if values.len() < 7 {
+        return None;
+    }
+    let idle = values[3].checked_add(*values.get(4).unwrap_or(&0))?;
+    let total = values
+        .iter()
+        .try_fold(0u64, |sum, value| sum.checked_add(*value))?;
+    Some((idle, total))
+}
+
+fn cpu_usage_percent_from_totals(before: (u64, u64), after: (u64, u64)) -> Option<u64> {
+    let idle_delta = after.0.checked_sub(before.0)?;
+    let total_delta = after.1.checked_sub(before.1)?;
+    if total_delta == 0 || idle_delta > total_delta {
+        return None;
+    }
+    Some(round_percent(total_delta - idle_delta, total_delta))
+}
+
+fn meminfo_kib_value(raw: &str, key: &str) -> Option<u64> {
+    raw.lines()
+        .find_map(|line| line.strip_prefix(key))
+        .and_then(|value| value.split_whitespace().next())
+        .and_then(|value| value.parse::<u64>().ok())
+}
+
+fn round_percent(numerator: u64, denominator: u64) -> u64 {
+    ((numerator.saturating_mul(100) + denominator / 2) / denominator).min(100)
+}
+
+fn format_percent(percent: Option<u64>) -> String {
+    percent
+        .map(|percent| format!("{percent}%"))
+        .unwrap_or_else(|| "??%".to_string())
 }
 
 pub fn render_codex_usage_status_widget(
@@ -1056,6 +1140,7 @@ mod tests {
         let rendered = render_yazelix_runtime_command_definitions(&YazelixRuntimeCommandPaths {
             nu_bin: "/runtime/bin/nu".to_string(),
             yzx_control_bin: "/runtime/bin/yzx_control".to_string(),
+            yazelix_bar_widget_bin: "/runtime/bin/yazelix_bar_widget".to_string(),
             runtime_dir: "/runtime".to_string(),
         });
 
@@ -1068,12 +1153,44 @@ mod tests {
             r#"command_cursor_command "/runtime/bin/yzx_control zellij status-cache-widget cursor""#
         ));
         assert!(rendered.contains(r#"command_cursor_rendermode "dynamic""#));
-        assert!(rendered.contains(
-            r#"command_cpu_command "/runtime/bin/nu /runtime/configs/zellij/scripts/cpu_usage.nu""#
-        ));
+        assert!(rendered.contains(r#"command_cpu_command "/runtime/bin/yazelix_bar_widget cpu""#));
+        assert!(rendered.contains(r#"command_ram_command "/runtime/bin/yazelix_bar_widget ram""#));
         assert!(rendered.contains(
             r#"command_version_command "/runtime/bin/nu -c 'use /runtime/nushell/scripts/utils/constants.nu YAZELIX_VERSION; $YAZELIX_VERSION'""#
         ));
+    }
+
+    // Defends: CPU widget math uses /proc/stat deltas and hides malformed samples.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn calculates_cpu_widget_percent_from_proc_stat_snapshots() {
+        let before = "cpu  100 0 50 850 0 0 0 0\n";
+        let after = "cpu  130 0 70 900 0 0 0 0\n";
+
+        assert_eq!(cpu_usage_percent_from_proc_stat(before, after), Some(50));
+        assert_eq!(cpu_usage_percent_from_proc_stat("cpu  1 2\n", after), None);
+        assert_eq!(cpu_usage_percent_from_proc_stat(after, before), None);
+    }
+
+    // Defends: RAM widget math uses MemAvailable rather than Yazelix/Nushell runtime state.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn calculates_ram_widget_percent_from_meminfo() {
+        let meminfo = "\
+MemTotal:       1000000 kB
+MemFree:         100000 kB
+MemAvailable:   250000 kB
+";
+
+        assert_eq!(ram_usage_percent_from_meminfo(meminfo), Some(75));
+        assert_eq!(
+            ram_usage_percent_from_meminfo("MemTotal: 0 kB\nMemAvailable: 0 kB\n"),
+            None
+        );
+        assert_eq!(
+            ram_usage_percent_from_meminfo("MemTotal: 10 kB\nMemAvailable: 20 kB\n"),
+            None
+        );
     }
 
     // Regression: dynamic command placeholders must preserve stable spacing around safe widgets.

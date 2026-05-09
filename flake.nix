@@ -29,7 +29,7 @@
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
       mkPkgs = system: nixpkgs.legacyPackages.${system};
-      generatorPackage =
+      toolPackage =
         system: pkgs:
         let
           rustToolchain = fenix.packages.${system}.combine [
@@ -55,18 +55,14 @@
           };
         in
         rustPlatform.buildRustPackage {
-          pname = "yazelix_bar_generator";
+          pname = "yazelix_bar_tools";
           version = "0.1.0";
 
           src = source;
           cargoLock.lockFile = ./Cargo.lock;
-          cargoBuildFlags = [
-            "--bin"
-            "yazelix_bar_generate"
-          ];
 
           meta = {
-            description = "Generator for standalone Yazelix bar zjstatus presets";
+            description = "Standalone Yazelix bar generator and widget commands";
             homepage = "https://github.com/luccahuguet/yazelix-bar";
             license = pkgs.lib.licenses.asl20;
             mainProgram = "yazelix_bar_generate";
@@ -75,7 +71,7 @@
       barPackage =
         system: pkgs:
         let
-          generator = generatorPackage system pkgs;
+          tools = toolPackage system pkgs;
           zjstatusPackage = zjstatus.packages.${system}.default;
         in
         pkgs.stdenvNoCC.mkDerivation {
@@ -105,7 +101,8 @@
             substitute presets/yazelix_bar.kdl "$out/share/yazelix_bar/yazelix_bar.kdl" \
               --replace-fail "__YAZELIX_BAR_ZJSTATUS_WASM__" "file:$out/share/yazelix_bar/zjstatus.wasm"
             install -Dm644 presets/yazelix_bar.kdl "$out/share/yazelix_bar/yazelix_bar.template.kdl"
-            install -Dm755 ${generator}/bin/yazelix_bar_generate "$out/bin/yazelix_bar_generate"
+            install -Dm755 ${tools}/bin/yazelix_bar_generate "$out/bin/yazelix_bar_generate"
+            install -Dm755 ${tools}/bin/yazelix_bar_widget "$out/bin/yazelix_bar_widget"
             mkdir -p "$out/share/yazelix_bar/generated"
             "$out/bin/yazelix_bar_generate" \
               --wasm-url "file:$out/share/yazelix_bar/zjstatus.wasm" \
@@ -126,6 +123,7 @@
 
             test -s "$out/share/yazelix_bar/zjstatus.wasm"
             test -x "$out/bin/yazelix_bar_generate"
+            test -x "$out/bin/yazelix_bar_widget"
             grep -q 'location="file:' "$out/share/yazelix_bar/yazelix_bar.kdl"
             grep -q 'format_right' "$out/share/yazelix_bar/generated/yazelix_bar.kdl"
             ! grep -q '__YAZELIX_BAR_ZJSTATUS_WASM__' "$out/share/yazelix_bar/yazelix_bar.kdl"
@@ -141,6 +139,7 @@
             generatedPresetPath = "share/yazelix_bar/generated/yazelix_bar.kdl";
             examplesPath = "share/yazelix_bar/examples";
             generatorPath = "bin/yazelix_bar_generate";
+            widgetPath = "bin/yazelix_bar_widget";
             wasmPath = "share/yazelix_bar/zjstatus.wasm";
           };
 
@@ -158,13 +157,14 @@
         let
           pkgs = mkPkgs system;
           bar = barPackage system pkgs;
-          generator = generatorPackage system pkgs;
+          tools = toolPackage system pkgs;
         in
         {
           default = bar;
           yazelix_bar = bar;
           yazelix-bar = bar;
-          yazelix_bar_generate = generator;
+          yazelix_bar_generate = tools;
+          yazelix_bar_widget = tools;
         }
       );
 
@@ -177,11 +177,16 @@
           type = "app";
           program = "${self.packages.${system}.yazelix_bar_generate}/bin/yazelix_bar_generate";
         };
+        yazelix_bar_widget = {
+          type = "app";
+          program = "${self.packages.${system}.yazelix_bar_widget}/bin/yazelix_bar_widget";
+        };
       });
 
       checks = forAllSystems (system: {
         yazelix_bar = self.packages.${system}.yazelix_bar;
         yazelix_bar_generate = self.packages.${system}.yazelix_bar_generate;
+        yazelix_bar_widget = self.packages.${system}.yazelix_bar_widget;
       });
     };
 }
