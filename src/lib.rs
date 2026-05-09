@@ -1225,6 +1225,48 @@ mod tests {
         );
     }
 
+    // Defends: generic provider usage rendering covers Claude-style configured windows without Yazelix cache paths.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn renders_windowed_agent_usage_widget_for_claude_facts() {
+        let facts = WindowedAgentUsageFacts {
+            five_hour_tokens: Some(15_456_373),
+            weekly_tokens: Some(66_610_005),
+            five_hour_remaining_percent: Some(49),
+            weekly_remaining_percent: Some(80),
+            ..WindowedAgentUsageFacts::default()
+        };
+        let periods = [AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly];
+
+        assert_eq!(
+            render_windowed_agent_usage_status_widget(
+                "claude",
+                &facts,
+                &periods,
+                AgentUsageDisplay::Both
+            ),
+            " [claude 5h|15.5M|49% wk|66.6M|80%]"
+        );
+        assert_eq!(
+            render_windowed_agent_usage_status_widget(
+                "claude",
+                &facts,
+                &periods,
+                AgentUsageDisplay::Token
+            ),
+            " [claude 5h|15.5M wk|66.6M]"
+        );
+        assert_eq!(
+            render_windowed_agent_usage_status_widget(
+                "claude",
+                &facts,
+                &periods,
+                AgentUsageDisplay::Quota
+            ),
+            " [claude 5h|49% wk|80%]"
+        );
+    }
+
     // Regression: unsupported widget names must fail fast instead of leaving broken zjstatus placeholders.
     // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
     #[test]
