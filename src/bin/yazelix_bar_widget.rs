@@ -13,10 +13,13 @@ fn main() {
 
 fn run(args: Vec<String>) -> Result<String, String> {
     let Some((command, rest)) = args.split_first() else {
-        return Err("expected widget command: codex_usage, cursor, cpu, or ram".to_string());
+        return Err(
+            "expected widget command: claude_usage, codex_usage, cursor, cpu, or ram".to_string(),
+        );
     };
     match command.as_str() {
         "cursor" => run_cursor(rest),
+        "claude_usage" => run_claude_usage(rest),
         "codex_usage" => run_codex_usage(rest),
         "cpu" if rest.is_empty() => Ok(yazelix_bar::current_cpu_usage_widget_text()),
         "ram" if rest.is_empty() => Ok(yazelix_bar::current_ram_usage_widget_text()),
@@ -32,6 +35,55 @@ fn run_cursor(args: &[String]) -> Result<String, String> {
             .map_err(|error| format!("failed to read cursor fact file {path}: {error}")),
         _ => Err("cursor usage: yazelix_bar_widget cursor [--facts <path>]".to_string()),
     }
+}
+
+fn run_claude_usage(args: &[String]) -> Result<String, String> {
+    let mut cache_path = None;
+    let mut display = yazelix_bar::AgentUsageDisplay::Both;
+    let mut max_age_seconds = 600;
+    let mut error_backoff_seconds = 1_800;
+    let mut timeout_ms = 5_000;
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--cache" => {
+                cache_path = Some(std::path::PathBuf::from(
+                    iter.next()
+                        .ok_or_else(|| "--cache requires a value".to_string())?,
+                ));
+            }
+            "--display" => {
+                display = parse_agent_usage_display(
+                    iter.next()
+                        .ok_or_else(|| "--display requires a value".to_string())?,
+                )?;
+            }
+            "--max-age-seconds" => {
+                max_age_seconds = parse_u64_arg("--max-age-seconds", iter.next())?;
+            }
+            "--error-backoff-seconds" => {
+                error_backoff_seconds = parse_u64_arg("--error-backoff-seconds", iter.next())?;
+            }
+            "--timeout-ms" => {
+                timeout_ms = parse_u64_arg("--timeout-ms", iter.next())?.max(1);
+            }
+            _ => {
+                return Err(format!("unknown claude_usage argument: {arg}"));
+            }
+        }
+    }
+    let cache_path = cache_path.ok_or_else(|| {
+        "claude_usage usage: yazelix_bar_widget claude_usage --cache <path> [--display quota|token|both]".to_string()
+    })?;
+    yazelix_bar::claude_usage_widget_text(yazelix_bar::ClaudeUsageWidgetOptions {
+        cache_path: &cache_path,
+        path_var: env::var_os("PATH").as_deref(),
+        now_unix_seconds: unix_time_seconds(),
+        max_age_seconds,
+        error_backoff_seconds,
+        timeout: std::time::Duration::from_millis(timeout_ms),
+        display,
+    })
 }
 
 fn run_codex_usage(args: &[String]) -> Result<String, String> {

@@ -203,11 +203,24 @@ impl WindowedAgentUsageFacts {
 }
 
 pub const CODEX_USAGE_CACHE_SCHEMA_VERSION: i64 = 2;
+pub const CLAUDE_USAGE_CACHE_SCHEMA_VERSION: i64 = 1;
 pub const CODEX_USAGE_LOCK_STALE_AFTER_SECONDS: u64 = 300;
+pub const CLAUDE_USAGE_LOCK_STALE_AFTER_SECONDS: u64 = 300;
 const AGENT_USAGE_MINUTE_SECONDS: u64 = 60;
 
 #[derive(Debug, Clone, Copy)]
 pub struct CodexUsageWidgetOptions<'a> {
+    pub cache_path: &'a std::path::Path,
+    pub path_var: Option<&'a std::ffi::OsStr>,
+    pub now_unix_seconds: u64,
+    pub max_age_seconds: u64,
+    pub error_backoff_seconds: u64,
+    pub timeout: std::time::Duration,
+    pub display: AgentUsageDisplay,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ClaudeUsageWidgetOptions<'a> {
     pub cache_path: &'a std::path::Path,
     pub path_var: Option<&'a std::ffi::OsStr>,
     pub now_unix_seconds: u64,
@@ -232,6 +245,38 @@ pub fn codex_usage_widget_text(options: CodexUsageWidgetOptions<'_>) -> Result<S
     ))
 }
 
+pub fn claude_usage_widget_text(options: ClaudeUsageWidgetOptions<'_>) -> Result<String, String> {
+    refresh_claude_usage_shared_cache(
+        options.cache_path,
+        options.path_var,
+        options.now_unix_seconds,
+        options.max_age_seconds,
+        options.error_backoff_seconds,
+        options.timeout,
+    )?;
+    Ok(render_claude_usage_widget_from_cache(
+        options.cache_path,
+        options.display,
+    ))
+}
+
+pub fn render_claude_usage_widget_from_cache(
+    path: &std::path::Path,
+    display: AgentUsageDisplay,
+) -> String {
+    read_claude_usage_shared_cache_value(path)
+        .and_then(|cache| cache.get("claude").cloned())
+        .map(|entry| {
+            render_windowed_agent_usage_status_widget(
+                "claude",
+                &windowed_usage_facts_from_cache_entry(&entry),
+                &[AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly],
+                display,
+            )
+        })
+        .unwrap_or_default()
+}
+
 pub fn render_codex_usage_widget_from_cache(
     path: &std::path::Path,
     display: AgentUsageDisplay,
@@ -254,6 +299,19 @@ pub fn read_codex_usage_shared_cache_value(path: &std::path::Path) -> Option<ser
         .get("schema_version")
         .and_then(serde_json::Value::as_i64)
         != Some(CODEX_USAGE_CACHE_SCHEMA_VERSION)
+    {
+        return None;
+    }
+    Some(cache)
+}
+
+pub fn read_claude_usage_shared_cache_value(path: &std::path::Path) -> Option<serde_json::Value> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let cache: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    if cache
+        .get("schema_version")
+        .and_then(serde_json::Value::as_i64)
+        != Some(CLAUDE_USAGE_CACHE_SCHEMA_VERSION)
     {
         return None;
     }
@@ -366,6 +424,96 @@ pub fn refresh_codex_usage_shared_cache(
         &serde_json::json!({
             "schema_version": CODEX_USAGE_CACHE_SCHEMA_VERSION,
             "codex": serde_json::Value::Object(entry),
+        }),
+    )?;
+    Ok(true)
+}
+
+pub fn refresh_claude_usage_shared_cache(
+    shared_path: &std::path::Path,
+    path_var: Option<&std::ffi::OsStr>,
+    now: u64,
+    max_age_seconds: u64,
+    error_backoff_seconds: u64,
+    timeout: std::time::Duration,
+) -> Result<bool, String> {
+    if claude_usage_shared_cache_is_fresh(shared_path, now, max_age_seconds)
+        || claude_usage_shared_cache_is_backing_off(shared_path, now)
+    {
+        return Ok(false);
+    }
+    let Some(_lock) = try_acquire_claude_usage_cache_lock(shared_path, now)? else {
+        return Ok(false);
+    };
+    if claude_usage_shared_cache_is_fresh(shared_path, now, max_age_seconds)
+        || claude_usage_shared_cache_is_backing_off(shared_path, now)
+    {
+        return Ok(false);
+    }
+
+    let quota_backoff_until = claude_usage_quota_backoff_until(shared_path, now);
+    let previous_facts = read_claude_usage_shared_cache_value(shared_path)
+        .and_then(|cache| cache.get("claude").cloned())
+        .map(|entry| windowed_usage_facts_from_cache_entry(&entry));
+    let mut facts = collect_claude_usage_facts(path_var, timeout, quota_backoff_until.is_none());
+    let quota_probe_failed = quota_backoff_until.is_none() && !facts.has_quota();
+    preserve_previous_claude_window_quota(&mut facts, previous_facts.as_ref());
+
+    let mut entry = serde_json::Map::new();
+    entry.insert(
+        "updated_at_unix_seconds".to_string(),
+        serde_json::json!(now),
+    );
+    insert_u64(&mut entry, "five_hour_tokens", facts.five_hour_tokens);
+    insert_u64(&mut entry, "weekly_tokens", facts.weekly_tokens);
+    insert_u64(
+        &mut entry,
+        "five_hour_remaining_percent",
+        facts.five_hour_remaining_percent,
+    );
+    insert_u64(
+        &mut entry,
+        "weekly_remaining_percent",
+        facts.weekly_remaining_percent,
+    );
+    if let Some(error) = facts.error.as_deref().filter(|value| !value.is_empty()) {
+        entry.insert("error".to_string(), serde_json::json!(error));
+        if facts.is_empty() {
+            entry.insert(
+                "backoff_until_unix_seconds".to_string(),
+                serde_json::json!(now.saturating_add(error_backoff_seconds)),
+            );
+        }
+    }
+    if let Some(backoff_until) = quota_backoff_until {
+        entry.insert(
+            "quota_backoff_until_unix_seconds".to_string(),
+            serde_json::json!(backoff_until),
+        );
+    } else if facts.has_tokens() && (quota_probe_failed || !facts.has_quota()) {
+        entry.insert(
+            "quota_backoff_until_unix_seconds".to_string(),
+            serde_json::json!(now.saturating_add(error_backoff_seconds)),
+        );
+    }
+    let status = if facts.is_empty() {
+        "error"
+    } else if facts.has_tokens()
+        && facts.has_quota()
+        && !quota_probe_failed
+        && quota_backoff_until.is_none()
+    {
+        "ok"
+    } else {
+        "partial"
+    };
+    entry.insert("status".to_string(), serde_json::json!(status));
+
+    write_json_value_atomic(
+        shared_path,
+        &serde_json::json!({
+            "schema_version": CLAUDE_USAGE_CACHE_SCHEMA_VERSION,
+            "claude": serde_json::Value::Object(entry),
         }),
     )?;
     Ok(true)
@@ -1015,11 +1163,56 @@ pub fn codex_usage_shared_cache_is_backing_off(path: &std::path::Path, now: u64)
         .is_some_and(|backoff_until| now < backoff_until)
 }
 
+pub fn claude_usage_shared_cache_is_fresh(
+    path: &std::path::Path,
+    now: u64,
+    max_age_seconds: u64,
+) -> bool {
+    let Some(cache) = read_claude_usage_shared_cache_value(path) else {
+        return false;
+    };
+    cache
+        .get("claude")
+        .and_then(|entry| entry.get("updated_at_unix_seconds"))
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|updated_at| {
+            now.saturating_sub(updated_at) < max_age_seconds
+                && cache
+                    .get("claude")
+                    .map(windowed_usage_facts_from_cache_entry)
+                    .is_some_and(|facts| claude_usage_facts_are_complete(&facts))
+        })
+}
+
+pub fn claude_usage_shared_cache_is_backing_off(path: &std::path::Path, now: u64) -> bool {
+    read_claude_usage_shared_cache_value(path)
+        .and_then(|cache| {
+            let entry = cache.get("claude")?;
+            let facts = windowed_usage_facts_from_cache_entry(entry);
+            if !facts.is_empty() && !claude_usage_facts_are_complete(&facts) {
+                return None;
+            }
+            entry.get("backoff_until_unix_seconds")?.as_u64()
+        })
+        .is_some_and(|backoff_until| now < backoff_until)
+}
+
 pub fn codex_usage_quota_backoff_until(path: &std::path::Path, now: u64) -> Option<u64> {
     read_codex_usage_shared_cache_value(path)
         .and_then(|cache| {
             cache
                 .get("codex")?
+                .get("quota_backoff_until_unix_seconds")?
+                .as_u64()
+        })
+        .filter(|backoff_until| now < *backoff_until)
+}
+
+pub fn claude_usage_quota_backoff_until(path: &std::path::Path, now: u64) -> Option<u64> {
+    read_claude_usage_shared_cache_value(path)
+        .and_then(|cache| {
+            cache
+                .get("claude")?
                 .get("quota_backoff_until_unix_seconds")?
                 .as_u64()
         })
@@ -1035,6 +1228,13 @@ fn codex_usage_facts_are_complete(facts: &WindowedAgentUsageFacts) -> bool {
         && facts.weekly_reset_at_unix_seconds.is_some()
         && facts.five_hour_window_seconds.is_some()
         && facts.weekly_window_seconds.is_some()
+}
+
+fn claude_usage_facts_are_complete(facts: &WindowedAgentUsageFacts) -> bool {
+    facts.five_hour_tokens.is_some()
+        && facts.weekly_tokens.is_some()
+        && facts.five_hour_remaining_percent.is_some()
+        && facts.weekly_remaining_percent.is_some()
 }
 
 struct AgentUsageCacheLock {
@@ -1057,6 +1257,19 @@ fn try_acquire_codex_usage_cache_lock(
         )),
         now,
         CODEX_USAGE_LOCK_STALE_AFTER_SECONDS,
+    )
+}
+
+fn try_acquire_claude_usage_cache_lock(
+    shared_path: &std::path::Path,
+    now: u64,
+) -> Result<Option<AgentUsageCacheLock>, String> {
+    try_acquire_agent_usage_cache_lock(
+        shared_path.with_file_name(format!(
+            ".claude_usage_cache_v{CLAUDE_USAGE_CACHE_SCHEMA_VERSION}.lock"
+        )),
+        now,
+        CLAUDE_USAGE_LOCK_STALE_AFTER_SECONDS,
     )
 }
 
@@ -1163,6 +1376,21 @@ fn preserve_previous_codex_window_quota(
     }
 }
 
+fn preserve_previous_claude_window_quota(
+    facts: &mut WindowedAgentUsageFacts,
+    previous: Option<&WindowedAgentUsageFacts>,
+) {
+    let Some(previous) = previous else {
+        return;
+    };
+    if facts.five_hour_remaining_percent.is_none() {
+        facts.five_hour_remaining_percent = previous.five_hour_remaining_percent;
+    }
+    if facts.weekly_remaining_percent.is_none() {
+        facts.weekly_remaining_percent = previous.weekly_remaining_percent;
+    }
+}
+
 fn previous_codex_quota_window_is_still_valid(
     reset_at_unix_seconds: Option<u64>,
     window_seconds: Option<u64>,
@@ -1256,6 +1484,75 @@ fn collect_codex_usage_facts(
     facts
 }
 
+fn collect_claude_usage_facts(
+    path_var: Option<&std::ffi::OsStr>,
+    timeout: std::time::Duration,
+    include_quota: bool,
+) -> WindowedAgentUsageFacts {
+    let Some(path_var) = path_var else {
+        return WindowedAgentUsageFacts {
+            error: Some("missing PATH".to_string()),
+            ..WindowedAgentUsageFacts::default()
+        };
+    };
+    let Some(binary_path) = find_command_in_path_var(path_var, "tu") else {
+        return WindowedAgentUsageFacts {
+            error: Some("missing tu".to_string()),
+            ..WindowedAgentUsageFacts::default()
+        };
+    };
+
+    let mut facts = WindowedAgentUsageFacts::default();
+    match run_tokenusage_json_command(&binary_path, claude_active_block_args().as_slice(), timeout)
+    {
+        Ok(Some(value)) => {
+            facts.five_hour_tokens = tokenusage_active_block_tokens_from_json(&value)
+        }
+        Ok(None) => facts.error = Some("active block unavailable".to_string()),
+        Err(error) => facts.error = Some(error),
+    }
+    match run_tokenusage_json_command(&binary_path, claude_weekly_args().as_slice(), timeout) {
+        Ok(Some(value)) => facts.weekly_tokens = tokenusage_weekly_tokens_from_json(&value),
+        Ok(None) => {
+            if facts.error.is_none() {
+                facts.error = Some("weekly usage unavailable".to_string());
+            }
+        }
+        Err(error) => {
+            if facts.error.is_none() {
+                facts.error = Some(error);
+            }
+        }
+    }
+    if include_quota {
+        match run_tokenusage_json_command(
+            &binary_path,
+            claude_official_limits_args().as_slice(),
+            timeout,
+        ) {
+            Ok(Some(value)) => {
+                let quota = claude_quota_from_official_json(&value);
+                facts.five_hour_remaining_percent = quota.five_hour_remaining_percent;
+                facts.weekly_remaining_percent = quota.weekly_remaining_percent;
+                if !quota.has_quota() && facts.error.is_none() {
+                    facts.error = Some("quota unavailable".to_string());
+                }
+            }
+            Ok(None) => {
+                if facts.error.is_none() {
+                    facts.error = Some("quota unavailable".to_string());
+                }
+            }
+            Err(error) => {
+                if facts.error.is_none() {
+                    facts.error = Some(error);
+                }
+            }
+        }
+    }
+    facts
+}
+
 fn codex_active_block_args() -> Vec<&'static str> {
     vec![
         "blocks",
@@ -1286,6 +1583,40 @@ fn codex_official_limits_args() -> Vec<&'static str> {
         "--json",
         "--official-limits",
         "--no-claude",
+        "--no-antigravity",
+    ]
+}
+
+fn claude_active_block_args() -> Vec<&'static str> {
+    vec![
+        "blocks",
+        "--active",
+        "--json",
+        "--offline",
+        "--no-codex",
+        "--no-antigravity",
+    ]
+}
+
+fn claude_weekly_args() -> Vec<&'static str> {
+    vec![
+        "weekly",
+        "--json",
+        "--offline",
+        "--no-codex",
+        "--no-antigravity",
+        "--order",
+        "desc",
+    ]
+}
+
+fn claude_official_limits_args() -> Vec<&'static str> {
+    vec![
+        "blocks",
+        "--active",
+        "--json",
+        "--official-limits",
+        "--no-codex",
         "--no-antigravity",
     ]
 }
@@ -1424,6 +1755,23 @@ fn codex_quota_from_official_json(value: &serde_json::Value) -> WindowedAgentUsa
             .get("secondary_window_mins")
             .and_then(serde_json::Value::as_u64)
             .and_then(window_minutes_to_seconds),
+        ..WindowedAgentUsageFacts::default()
+    }
+}
+
+fn claude_quota_from_official_json(value: &serde_json::Value) -> WindowedAgentUsageFacts {
+    let Some(official) = value.get("official_claude") else {
+        return WindowedAgentUsageFacts::default();
+    };
+    WindowedAgentUsageFacts {
+        five_hour_remaining_percent: official
+            .get("primary_used_percent")
+            .and_then(serde_json::Value::as_f64)
+            .map(remaining_percent_from_used),
+        weekly_remaining_percent: official
+            .get("secondary_used_percent")
+            .and_then(serde_json::Value::as_f64)
+            .map(remaining_percent_from_used),
         ..WindowedAgentUsageFacts::default()
     }
 }
@@ -2288,6 +2636,98 @@ fi
 
         assert!(codex_usage_shared_cache_is_backing_off(&cache_path, 1_999));
         assert!(!codex_usage_shared_cache_is_backing_off(&cache_path, 2_000));
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // Defends: the standalone Claude command owns tokenusage probing, cache writes, and rendering without Yazelix runtime paths.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[cfg(unix)]
+    #[test]
+    fn claude_usage_widget_refreshes_shared_cache_from_tokenusage_provider() {
+        let temp = temp_test_dir("claude_usage_refresh");
+        let bin_dir = temp.join("bin");
+        write_tokenusage_provider_script(
+            &bin_dir,
+            r#"#!/usr/bin/env sh
+if [ "$1" = "blocks" ] && [ "$4" = "--official-limits" ]; then
+  printf '%s\n' '{"official_claude":{"primary_used_percent":51.0,"secondary_used_percent":20.0}}'
+elif [ "$1" = "blocks" ]; then
+  printf '%s\n' '{"blocks":[{"isActive":true,"totals":{"total_tokens":15456373}}]}'
+elif [ "$1" = "weekly" ]; then
+  printf '%s\n' '{"weekly":[{"totals":{"total_tokens":66610005}}]}'
+else
+  exit 1
+fi
+"#,
+        );
+        let cache_path = temp.join("agent_usage").join("claude_usage_cache_v1.json");
+
+        let text = claude_usage_widget_text(ClaudeUsageWidgetOptions {
+            cache_path: &cache_path,
+            path_var: Some(bin_dir.as_os_str()),
+            now_unix_seconds: 1_000,
+            max_age_seconds: 600,
+            error_backoff_seconds: 1_800,
+            timeout: std::time::Duration::from_secs(1),
+            display: AgentUsageDisplay::Both,
+        })
+        .unwrap();
+
+        assert_eq!(text, " [claude 5h|15.5M|49% wk|66.6M|80%]");
+        assert_eq!(
+            read_claude_usage_shared_cache_value(&cache_path)
+                .unwrap()
+                .pointer("/claude/status")
+                .and_then(serde_json::Value::as_str),
+            Some("ok")
+        );
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // Defends: Claude cache freshness and error backoff are enforced by yazelix-bar, not by Yazelix wrappers.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn claude_usage_shared_cache_respects_freshness_and_backoff() {
+        let temp = temp_test_dir("claude_usage_backoff");
+        let cache_path = temp.join("claude_usage_cache_v1.json");
+        write_json_value_atomic(
+            &cache_path,
+            &serde_json::json!({
+                "schema_version": CLAUDE_USAGE_CACHE_SCHEMA_VERSION,
+                "claude": {
+                    "updated_at_unix_seconds": 1_000u64,
+                    "five_hour_tokens": 15_456_373u64,
+                    "weekly_tokens": 66_610_005u64,
+                    "five_hour_remaining_percent": 49u64,
+                    "weekly_remaining_percent": 80u64,
+                    "status": "ok"
+                }
+            }),
+        )
+        .unwrap();
+
+        assert!(claude_usage_shared_cache_is_fresh(&cache_path, 1_100, 600));
+        assert!(!claude_usage_shared_cache_is_fresh(&cache_path, 1_700, 600));
+
+        write_json_value_atomic(
+            &cache_path,
+            &serde_json::json!({
+                "schema_version": CLAUDE_USAGE_CACHE_SCHEMA_VERSION,
+                "claude": {
+                    "updated_at_unix_seconds": 1_700u64,
+                    "error": "missing tu",
+                    "backoff_until_unix_seconds": 2_000u64,
+                    "status": "error"
+                }
+            }),
+        )
+        .unwrap();
+
+        assert!(claude_usage_shared_cache_is_backing_off(&cache_path, 1_999));
+        assert!(!claude_usage_shared_cache_is_backing_off(
+            &cache_path,
+            2_000
+        ));
         let _ = std::fs::remove_dir_all(temp);
     }
 
