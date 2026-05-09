@@ -66,9 +66,6 @@ pub struct YazelixRuntimeCommandPaths {
     pub yzx_control_bin: String,
     pub yazelix_bar_widget_bin: String,
     pub runtime_dir: String,
-    pub claude_usage_cache_path: String,
-    pub codex_usage_cache_path: String,
-    pub opencode_go_usage_cache_path: String,
     pub claude_usage_display: String,
     pub codex_usage_display: String,
     pub opencode_go_usage_display: String,
@@ -393,6 +390,55 @@ pub fn read_opencode_go_usage_shared_cache_value(
         return None;
     }
     Some(cache)
+}
+
+pub fn claude_usage_cache_path_from_env() -> Option<std::path::PathBuf> {
+    status_bar_cache_path_from_env().and_then(|path| {
+        agent_usage_cache_path_from_status_cache_path(
+            &path,
+            "claude_usage_cache",
+            CLAUDE_USAGE_CACHE_SCHEMA_VERSION,
+        )
+    })
+}
+
+pub fn codex_usage_cache_path_from_env() -> Option<std::path::PathBuf> {
+    status_bar_cache_path_from_env().and_then(|path| {
+        agent_usage_cache_path_from_status_cache_path(
+            &path,
+            "codex_usage_cache",
+            CODEX_USAGE_CACHE_SCHEMA_VERSION,
+        )
+    })
+}
+
+pub fn opencode_go_usage_cache_path_from_env() -> Option<std::path::PathBuf> {
+    status_bar_cache_path_from_env().and_then(|path| {
+        agent_usage_cache_path_from_status_cache_path(
+            &path,
+            "opencode_go_usage_cache",
+            OPENCODE_GO_USAGE_CACHE_SCHEMA_VERSION,
+        )
+    })
+}
+
+pub fn agent_usage_cache_path_from_status_cache_path(
+    status_cache_path: &std::path::Path,
+    file_stem: &str,
+    schema_version: i64,
+) -> Option<std::path::PathBuf> {
+    let state_dir = status_cache_path.parent()?.parent()?.parent()?;
+    Some(
+        state_dir
+            .join("agent_usage")
+            .join(format!("{file_stem}_v{schema_version}.json")),
+    )
+}
+
+fn status_bar_cache_path_from_env() -> Option<std::path::PathBuf> {
+    std::env::var_os("YAZELIX_STATUS_BAR_CACHE_PATH")
+        .map(std::path::PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
 }
 
 pub fn refresh_codex_usage_shared_cache(
@@ -838,22 +884,16 @@ impl YazelixRuntimeCommand {
             }
             Self::BarWidget(widget) => format!("{} {widget}", paths.yazelix_bar_widget_bin),
             Self::ClaudeUsage => format!(
-                "{} claude_usage --cache {} --display {}",
-                paths.yazelix_bar_widget_bin,
-                paths.claude_usage_cache_path,
-                paths.claude_usage_display
+                "{} claude_usage --display {}",
+                paths.yazelix_bar_widget_bin, paths.claude_usage_display
             ),
             Self::CodexUsage => format!(
-                "{} codex_usage --cache {} --display {}",
-                paths.yazelix_bar_widget_bin,
-                paths.codex_usage_cache_path,
-                paths.codex_usage_display
+                "{} codex_usage --display {}",
+                paths.yazelix_bar_widget_bin, paths.codex_usage_display
             ),
             Self::OpenCodeGoUsage => format!(
-                "{} opencode_go_usage --cache {} --display {}",
-                paths.yazelix_bar_widget_bin,
-                paths.opencode_go_usage_cache_path,
-                paths.opencode_go_usage_display
+                "{} opencode_go_usage --display {}",
+                paths.yazelix_bar_widget_bin, paths.opencode_go_usage_display
             ),
             Self::RuntimeNuConstantsVersion => format!(
                 "{} -c 'use {}/nushell/scripts/utils/constants.nu YAZELIX_VERSION; $YAZELIX_VERSION'",
@@ -2790,10 +2830,6 @@ mod tests {
             yzx_control_bin: "/runtime/bin/yzx_control".to_string(),
             yazelix_bar_widget_bin: "/runtime/bin/yazelix_bar_widget".to_string(),
             runtime_dir: "/runtime".to_string(),
-            claude_usage_cache_path: "/state/agent_usage/claude_usage_cache_v1.json".to_string(),
-            codex_usage_cache_path: "/state/agent_usage/codex_usage_cache_v2.json".to_string(),
-            opencode_go_usage_cache_path: "/state/agent_usage/opencode_go_usage_cache_v1.json"
-                .to_string(),
             claude_usage_display: "both".to_string(),
             codex_usage_display: "quota".to_string(),
             opencode_go_usage_display: "both".to_string(),
@@ -2809,13 +2845,13 @@ mod tests {
         );
         assert!(rendered.contains(r#"command_cursor_rendermode "dynamic""#));
         assert!(rendered.contains(
-            r#"command_claude_usage_command "/runtime/bin/yazelix_bar_widget claude_usage --cache /state/agent_usage/claude_usage_cache_v1.json --display both""#
+            r#"command_claude_usage_command "/runtime/bin/yazelix_bar_widget claude_usage --display both""#
         ));
         assert!(rendered.contains(
-            r#"command_codex_usage_command "/runtime/bin/yazelix_bar_widget codex_usage --cache /state/agent_usage/codex_usage_cache_v2.json --display quota""#
+            r#"command_codex_usage_command "/runtime/bin/yazelix_bar_widget codex_usage --display quota""#
         ));
         assert!(rendered.contains(
-            r#"command_opencode_go_usage_command "/runtime/bin/yazelix_bar_widget opencode_go_usage --cache /state/agent_usage/opencode_go_usage_cache_v1.json --display both""#
+            r#"command_opencode_go_usage_command "/runtime/bin/yazelix_bar_widget opencode_go_usage --display both""#
         ));
         assert!(rendered.contains(r#"command_cpu_command "/runtime/bin/yazelix_bar_widget cpu""#));
         assert!(rendered.contains(r#"command_ram_command "/runtime/bin/yazelix_bar_widget ram""#));
@@ -3133,6 +3169,25 @@ fi
         assert!(codex_usage_shared_cache_is_backing_off(&cache_path, 1_999));
         assert!(!codex_usage_shared_cache_is_backing_off(&cache_path, 2_000));
         let _ = std::fs::remove_dir_all(temp);
+    }
+
+    // Defends: Yazelix runtime commands can derive provider cache files from the window status-cache env without calling yzx_control.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn agent_usage_cache_paths_derive_from_status_cache_path() {
+        let status_cache =
+            std::path::Path::new("/state/sessions/window_a/status/status_bar_cache.json");
+
+        assert_eq!(
+            agent_usage_cache_path_from_status_cache_path(
+                status_cache,
+                "codex_usage_cache",
+                CODEX_USAGE_CACHE_SCHEMA_VERSION,
+            ),
+            Some(std::path::PathBuf::from(
+                "/state/sessions/agent_usage/codex_usage_cache_v2.json"
+            ))
+        );
     }
 
     // Defends: the standalone Claude command owns tokenusage probing, cache writes, and rendering without Yazelix runtime paths.

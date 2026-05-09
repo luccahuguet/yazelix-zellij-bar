@@ -73,9 +73,11 @@ fn run_claude_usage(args: &[String]) -> Result<String, String> {
             }
         }
     }
-    let cache_path = cache_path.ok_or_else(|| {
-        "claude_usage usage: yazelix_bar_widget claude_usage --cache <path> [--display quota|token|both]".to_string()
-    })?;
+    let cache_path = cache_path
+        .or_else(yazelix_bar::claude_usage_cache_path_from_env)
+        .ok_or_else(|| {
+            "claude_usage usage: yazelix_bar_widget claude_usage [--cache <path>] [--display quota|token|both]".to_string()
+        })?;
     yazelix_bar::claude_usage_widget_text(yazelix_bar::ClaudeUsageWidgetOptions {
         cache_path: &cache_path,
         path_var: env::var_os("PATH").as_deref(),
@@ -122,9 +124,11 @@ fn run_codex_usage(args: &[String]) -> Result<String, String> {
             }
         }
     }
-    let cache_path = cache_path.ok_or_else(|| {
-        "codex_usage usage: yazelix_bar_widget codex_usage --cache <path> [--display quota|token|both]".to_string()
-    })?;
+    let cache_path = cache_path
+        .or_else(yazelix_bar::codex_usage_cache_path_from_env)
+        .ok_or_else(|| {
+            "codex_usage usage: yazelix_bar_widget codex_usage [--cache <path>] [--display quota|token|both]".to_string()
+        })?;
     yazelix_bar::codex_usage_widget_text(yazelix_bar::CodexUsageWidgetOptions {
         cache_path: &cache_path,
         path_var: env::var_os("PATH").as_deref(),
@@ -174,9 +178,11 @@ fn run_opencode_go_usage(args: &[String]) -> Result<String, String> {
             }
         }
     }
-    let cache_path = cache_path.ok_or_else(|| {
-        "opencode_go_usage usage: yazelix_bar_widget opencode_go_usage --cache <path> [--db <path>] [--display quota|token|both]".to_string()
-    })?;
+    let cache_path = cache_path
+        .or_else(yazelix_bar::opencode_go_usage_cache_path_from_env)
+        .ok_or_else(|| {
+            "opencode_go_usage usage: yazelix_bar_widget opencode_go_usage [--cache <path>] [--db <path>] [--display quota|token|both]".to_string()
+        })?;
     if db_paths.is_empty() {
         db_paths = yazelix_bar::opencode_db_candidates_from_env();
     }
