@@ -43,73 +43,16 @@ fn run_render_yazelix_runtime(args: &[String]) -> Result<String, String> {
         return Err("render-yazelix-runtime expects --json <request-json>".to_string());
     }
 
-    let request: serde_json::Value = serde_json::from_str(raw_request)
-        .map_err(|error| format!("invalid request json: {error}"))?;
-    let widget_tray = required_string_array(&request, "widget_tray")?;
-    let bar_request = yazelix_zellij_bar::BarRenderRequest {
-        widget_tray,
-        editor_label: required_string(&request, "editor_label")?,
-        shell_label: required_string(&request, "shell_label")?,
-        terminal_label: required_string(&request, "terminal_label")?,
-        custom_text: required_string(&request, "custom_text")?,
-    };
-    let bar_segments = yazelix_zellij_bar::render_zjstatus_bar_segments(&bar_request)
-        .map_err(|error| format!("failed to render Yazelix bar segments: {}", error.code()))?;
-    let tab_labels = yazelix_zellij_bar::render_zjstatus_tab_label_formats(&required_string(
-        &request,
-        "tab_label_mode",
-    )?)
-    .map_err(|error| format!("failed to render Yazelix tab labels: {}", error.code()))?;
-    let runtime_paths = yazelix_zellij_bar::YazelixRuntimeCommandPaths {
-        nu_bin: required_string(&request, "nu_bin")?,
-        yzx_control_bin: required_string(&request, "yzx_control_bin")?,
-        yazelix_zellij_bar_widget_bin: required_string(&request, "yazelix_zellij_bar_widget_bin")?,
-        runtime_dir: required_string(&request, "runtime_dir")?,
-        claude_usage_display: required_string(&request, "claude_usage_display")?,
-        codex_usage_display: required_string(&request, "codex_usage_display")?,
-        opencode_go_usage_display: required_string(&request, "opencode_go_usage_display")?,
-    };
+    let config: yazelix_zellij_bar::YazelixRuntimeBarConfig = serde_json::from_str(raw_request)
+        .map_err(|error| format!("invalid runtime bar config json: {error}"))?;
+    let plugin_block = yazelix_zellij_bar::render_yazelix_runtime_plugin_block(&config)
+        .map_err(|error| format!("failed to render Yazelix runtime bar: {}", error.code()))?;
 
-    Ok(serde_json::json!({
-        "schema_version": 1,
-        "replacements": {
-            yazelix_zellij_bar::WIDGET_TRAY_PLACEHOLDER: bar_segments.widget_tray_segment,
-            yazelix_zellij_bar::CUSTOM_TEXT_PLACEHOLDER: bar_segments.custom_text_segment,
-            yazelix_zellij_bar::TAB_NORMAL_PLACEHOLDER: tab_labels.tab_normal,
-            yazelix_zellij_bar::TAB_NORMAL_FULLSCREEN_PLACEHOLDER: tab_labels.tab_normal_fullscreen,
-            yazelix_zellij_bar::TAB_NORMAL_SYNC_PLACEHOLDER: tab_labels.tab_normal_sync,
-            yazelix_zellij_bar::TAB_ACTIVE_PLACEHOLDER: tab_labels.tab_active,
-            yazelix_zellij_bar::TAB_ACTIVE_FULLSCREEN_PLACEHOLDER: tab_labels.tab_active_fullscreen,
-            yazelix_zellij_bar::TAB_ACTIVE_SYNC_PLACEHOLDER: tab_labels.tab_active_sync,
-            yazelix_zellij_bar::TAB_RENAME_PLACEHOLDER: tab_labels.tab_rename,
-            yazelix_zellij_bar::ZJSTATUS_COMMAND_DEFINITIONS_PLACEHOLDER:
-                yazelix_zellij_bar::render_yazelix_runtime_command_definitions(&runtime_paths),
-        },
+    serde_json::to_string(&yazelix_zellij_bar::YazelixRuntimeBarRender {
+        schema_version: yazelix_zellij_bar::YAZELIX_RUNTIME_BAR_RENDER_SCHEMA_VERSION,
+        plugin_block,
     })
-    .to_string())
-}
-
-fn required_string(request: &serde_json::Value, key: &str) -> Result<String, String> {
-    request
-        .get(key)
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| format!("request field `{key}` must be a string"))
-}
-
-fn required_string_array(request: &serde_json::Value, key: &str) -> Result<Vec<String>, String> {
-    request
-        .get(key)
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| format!("request field `{key}` must be an array"))?
-        .iter()
-        .map(|value| {
-            value
-                .as_str()
-                .map(str::to_string)
-                .ok_or_else(|| format!("request field `{key}` entries must be strings"))
-        })
-        .collect()
+    .map_err(|error| format!("failed to encode Yazelix runtime bar render: {error}"))
 }
 
 fn run_cursor(args: &[String]) -> Result<String, String> {
@@ -357,6 +300,7 @@ mod tests {
             "--json".into(),
             serde_json::json!({
                 "widget_tray": ["editor", "workspace", "cpu"],
+                "zjstatus_plugin_url": "file:/runtime/configs/zellij/plugins/zjstatus.wasm",
                 "editor_label": "hx",
                 "shell_label": "nu",
                 "terminal_label": "ghostty",
@@ -375,31 +319,21 @@ mod tests {
         .unwrap();
         let rendered: serde_json::Value = serde_json::from_str(&output).unwrap();
 
-        assert_eq!(rendered["schema_version"], 1);
-        let replacements = rendered["replacements"].as_object().unwrap();
-        assert_eq!(
-            replacements[yazelix_zellij_bar::WIDGET_TRAY_PLACEHOLDER],
-            " #[fg=#00ff88,bold][editor: hx]{command_workspace}{command_cpu}"
-        );
-        assert_eq!(
-            replacements[yazelix_zellij_bar::CUSTOM_TEXT_PLACEHOLDER],
-            "#[fg=#ffff00,bold][demo] "
-        );
-        assert_eq!(
-            replacements[yazelix_zellij_bar::TAB_NORMAL_PLACEHOLDER],
-            r##"tab_normal   "#[fg=#ffff00] [{index}] ""##
-        );
+        assert_eq!(rendered["schema_version"], 2);
+        let plugin_block = rendered["plugin_block"].as_str().unwrap();
         assert!(
-            replacements[yazelix_zellij_bar::ZJSTATUS_COMMAND_DEFINITIONS_PLACEHOLDER]
-                .as_str()
-                .unwrap()
+            plugin_block.contains(
+                r#"plugin location="file:/runtime/configs/zellij/plugins/zjstatus.wasm" {"#
+            )
+        );
+        assert!(plugin_block.contains(
+            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][editor: hx]{command_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YAZELIX {command_version} \" // {datetime}"
+        ));
+        assert!(plugin_block.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
+        assert!(
+            plugin_block
                 .contains("/runtime/libexec/yzx_control zellij status-cache-widget workspace")
         );
-        assert!(
-            replacements[yazelix_zellij_bar::ZJSTATUS_COMMAND_DEFINITIONS_PLACEHOLDER]
-                .as_str()
-                .unwrap()
-                .contains("/runtime/libexec/yazelix_zellij_bar_widget cpu")
-        );
+        assert!(plugin_block.contains("/runtime/libexec/yazelix_zellij_bar_widget cpu"));
     }
 }

@@ -142,6 +142,7 @@ The Rust crate also exposes renderer helpers for embedders that want Yazelix-sty
 
 - `render_zjstatus_bar_segments` for editor, shell, terminal, custom text, and widget-tray placeholders
 - `render_zjstatus_tab_label_formats` for full and compact tab labels
+- `render_yazelix_runtime_plugin_block` for the full integrated Yazelix zjstatus plugin block from typed runtime config
 - `render_cursor_status_widget` for `yazelix-cursors`-compatible cursor facts
 - `render_codex_usage_status_widget` for cached Codex usage facts
 - `render_windowed_agent_usage_status_widget` for Claude, OpenCode Go, or another cached windowed provider
@@ -189,9 +190,9 @@ Workspace remains Yazelix-only because it is derived from Yazelix session facts.
 
 CPU, RAM, cursor, Codex, Claude, and OpenCode Go widgets are bar-owned standalone commands. Yazelix-only integration for those widgets is limited to generated layout wiring, environment hydration, and default cache-path derivation from the full runtime
 
-The full Yazelix runtime consumes this child repo for widget tray rendering, tab label formatting, and the integrated standalone package. The child repo packages `zjstatus.wasm` from its pinned `zjstatus` flake input so the package does not require manual artifact copying
+The full Yazelix runtime consumes this child repo for integrated zjstatus plugin rendering and the integrated standalone package. The child repo packages `zjstatus.wasm` from its pinned `zjstatus` flake input so the package does not require manual artifact copying
 
-The Rust API also renders Yazelix runtime command-widget definitions from resolved helper paths. Yazelix core still owns workspace facts, session config, and runtime path resolution; this repo owns non-workspace widget behavior and the generic zjstatus command-definition KDL shape
+`yazelix_zellij_bar_widget render-yazelix-runtime --json <config>` accepts typed runtime config from Yazelix and returns the complete child-owned zjstatus plugin block. Yazelix core still owns workspace facts, session config, and runtime path resolution; this repo owns widget rendering, tab formatting, command-widget KDL, and the generic zjstatus plugin shape
 
 When the main Yazelix repo forwards `#yazelix_zellij_bar`, it may make this repo's `zjstatus` input follow Yazelix's own `zjstatus` pin. Standalone users get the pin recorded in this repo's `flake.lock`
 

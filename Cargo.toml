@@ -16,6 +16,7 @@ path = "src/bin/yazelix_zellij_bar_widget.rs"
 
 [dependencies]
 rusqlite = { version = "0.39.0", features = ["bundled"], optional = true }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [features]

@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 pub const WIDGET_TRAY_PLACEHOLDER: &str = "__YAZELIX_WIDGET_TRAY__";
 pub const CUSTOM_TEXT_PLACEHOLDER: &str = "__YAZELIX_CUSTOM_TEXT_SEGMENT__";
 pub const TAB_NORMAL_PLACEHOLDER: &str = "__YAZELIX_ZJSTATUS_TAB_NORMAL__";
@@ -70,6 +72,32 @@ pub struct YazelixRuntimeCommandPaths {
     pub claude_usage_display: String,
     pub codex_usage_display: String,
     pub opencode_go_usage_display: String,
+}
+
+pub const YAZELIX_RUNTIME_BAR_RENDER_SCHEMA_VERSION: u64 = 2;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct YazelixRuntimeBarConfig {
+    pub zjstatus_plugin_url: String,
+    pub widget_tray: Vec<String>,
+    pub editor_label: String,
+    pub shell_label: String,
+    pub terminal_label: String,
+    pub custom_text: String,
+    pub tab_label_mode: String,
+    pub nu_bin: String,
+    pub yzx_control_bin: String,
+    pub yazelix_zellij_bar_widget_bin: String,
+    pub runtime_dir: String,
+    pub claude_usage_display: String,
+    pub codex_usage_display: String,
+    pub opencode_go_usage_display: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct YazelixRuntimeBarRender {
+    pub schema_version: u64,
+    pub plugin_block: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -847,6 +875,74 @@ pub fn render_zjstatus_bar_segments(
         widget_tray_segment: render_widget_tray_segment(request)?,
         custom_text_segment: render_custom_text_segment(&request.custom_text),
     })
+}
+
+pub fn render_yazelix_runtime_plugin_block(
+    config: &YazelixRuntimeBarConfig,
+) -> Result<String, BarRenderError> {
+    let bar_segments = render_zjstatus_bar_segments(&BarRenderRequest {
+        widget_tray: config.widget_tray.clone(),
+        editor_label: config.editor_label.clone(),
+        shell_label: config.shell_label.clone(),
+        terminal_label: config.terminal_label.clone(),
+        custom_text: config.custom_text.clone(),
+    })?;
+    let tab_labels = render_zjstatus_tab_label_formats(&config.tab_label_mode)?;
+    let command_definitions =
+        render_yazelix_runtime_command_definitions(&YazelixRuntimeCommandPaths {
+            nu_bin: config.nu_bin.clone(),
+            yzx_control_bin: config.yzx_control_bin.clone(),
+            yazelix_zellij_bar_widget_bin: config.yazelix_zellij_bar_widget_bin.clone(),
+            runtime_dir: config.runtime_dir.clone(),
+            claude_usage_display: config.claude_usage_display.clone(),
+            codex_usage_display: config.codex_usage_display.clone(),
+            opencode_go_usage_display: config.opencode_go_usage_display.clone(),
+        });
+
+    Ok(vec![
+        format!(
+            "plugin location=\"{}\" {{",
+            escape_kdl_string(&config.zjstatus_plugin_url)
+        ),
+        r#"    format_left   "{mode} {tabs}""#.to_string(),
+        r#"    format_center """#.to_string(),
+        format!(
+            r##"    format_right  "#[fg=#ff0088,bold]{{session}}{} {}#[fg=#00ccff,bold]YAZELIX {{command_version}} " // {{datetime}}"##,
+            bar_segments.widget_tray_segment, bar_segments.custom_text_segment
+        ),
+        r#"    format_hide_on_overlength "true""#.to_string(),
+        r#"    format_precedence "lrc""#.to_string(),
+        r#"    format_space  """#.to_string(),
+        String::new(),
+        r#"    border_enabled  "false""#.to_string(),
+        String::new(),
+        r##"    mode_normal  "#[bg=#00ff88,fg=#000000,bold] NORMAL ""##.to_string(),
+        r##"    mode_tmux    "#[bg=#ffff00,fg=#000000,bold] TMUX ""##.to_string(),
+        r##"    mode_session "#[bg=#ff6600,fg=#000000,bold] SESSION ""##.to_string(),
+        r##"    mode_scroll  "#[bg=#ff0088,fg=#ffffff,bold] SCROLL ""##.to_string(),
+        String::new(),
+        format!("    {}", tab_labels.tab_normal),
+        format!("    {}", tab_labels.tab_normal_fullscreen),
+        format!("    {}", tab_labels.tab_normal_sync),
+        format!("    {}", tab_labels.tab_active),
+        format!("    {}", tab_labels.tab_active_fullscreen),
+        format!("    {}", tab_labels.tab_active_sync),
+        r#"    tab_separator """#.to_string(),
+        format!("    {}", tab_labels.tab_rename),
+        r#"    tab_sync_indicator       "<> ""#.to_string(),
+        r#"    tab_fullscreen_indicator "[] ""#.to_string(),
+        format!(r#"    tab_floating_indicator   "{} ""#, "\u{2b1a}"),
+        r#"    tab_display_count "6""#.to_string(),
+        r##"    tab_truncate_start_format "#[fg=#ff6600,bold]< +{count} ... ""##.to_string(),
+        r##"    tab_truncate_end_format   "#[fg=#ff6600,bold]... +{count} > ""##.to_string(),
+        String::new(),
+        r##"    datetime        "#[fg=#bb88ff,bold] {format} ""##.to_string(),
+        r#"    datetime_format "%H:%M %d/%m""#.to_string(),
+        String::new(),
+        command_definitions,
+        "}".to_string(),
+    ]
+    .join("\n"))
 }
 
 pub fn render_widget_tray_segment(request: &BarRenderRequest) -> Result<String, BarRenderError> {
