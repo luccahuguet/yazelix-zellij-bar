@@ -11,7 +11,7 @@ pub const WIDGET_OPENCODE_GO_USAGE: &str = "opencode_go_usage";
 pub const WIDGET_CPU: &str = "cpu";
 pub const WIDGET_RAM: &str = "ram";
 
-pub const COMMAND_WORKSPACE: &str = "{command_workspace}";
+pub const PIPE_WORKSPACE: &str = "{pipe_workspace}";
 pub const COMMAND_CURSOR: &str = "{command_cursor}";
 pub const COMMAND_CLAUDE_USAGE: &str = "{command_claude_usage}";
 pub const COMMAND_CODEX_USAGE: &str = "{command_codex_usage}";
@@ -2396,7 +2396,7 @@ fn render_widget(widget: &str, request: &BarRenderRequest) -> Result<String, Bar
             " #[fg=#00ff88,bold][term: {}]",
             request.terminal_label
         )),
-        WIDGET_WORKSPACE => Ok(COMMAND_WORKSPACE.to_string()),
+        WIDGET_WORKSPACE => Ok(PIPE_WORKSPACE.to_string()),
         WIDGET_CURSOR => Ok(COMMAND_CURSOR.to_string()),
         WIDGET_CLAUDE_USAGE => Ok(COMMAND_CLAUDE_USAGE.to_string()),
         WIDGET_CODEX_USAGE => Ok(COMMAND_CODEX_USAGE.to_string()),
@@ -2523,14 +2523,14 @@ mod tests {
         assert_eq!(rendered, "");
     }
 
-    // Regression: dynamic status-bus widgets render through cached zjstatus command placeholders instead of being silently hidden.
+    // Regression: the active-tab workspace widget renders through a pushed pipe placeholder, not an async command result that can lag behind tab focus.
     // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
     #[test]
-    fn renders_status_bus_widgets_as_cached_command_placeholders() {
+    fn renders_workspace_widget_as_pushed_pipe_placeholder() {
         let rendered =
             render_widget_tray_segment(&render_request(&["workspace", "cursor"])).unwrap();
 
-        assert_eq!(rendered, "{command_workspace}{command_cursor}");
+        assert_eq!(rendered, "{pipe_workspace}{command_cursor}");
     }
 
     // Regression: agent usage widgets render through cache readers so expensive providers are never polled by zjstatus.
@@ -2579,15 +2579,14 @@ mod tests {
     fn renders_yazelix_runtime_plugin_block_from_template() {
         let rendered = render_yazelix_runtime_plugin_block(&runtime_bar_config()).unwrap();
 
-        assert!(YAZELIX_RUNTIME_BAR_TEMPLATE.contains("command_workspace_command"));
+        assert!(YAZELIX_RUNTIME_BAR_TEMPLATE.contains("pipe_workspace_format"));
         assert!(rendered.contains(r#"plugin location="file:/runtime/share/zjstatus.wasm" {"#));
         assert!(rendered.contains(
-            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][editor: hx]{command_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YAZELIX {command_version} \" // {datetime}"
+            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][editor: hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YAZELIX {command_version} \" // {datetime}"
         ));
         assert!(rendered.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
-        assert!(rendered.contains(
-            r#"command_workspace_command "/runtime/bin/yzx_control zellij status-cache-widget workspace""#
-        ));
+        assert!(rendered.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
+        assert!(!rendered.contains("command_workspace_command"));
         assert!(rendered.contains(
             r#"command_codex_usage_command "/runtime/bin/yazelix_zellij_bar_widget codex --display quota""#
         ));
@@ -2686,7 +2685,7 @@ MemAvailable:   250000 kB
 
         assert_eq!(
             rendered,
-            " #[fg=#00ff88,bold][editor: hx]{command_workspace} #[fg=#00ff88,bold][shell: nu]"
+            " #[fg=#00ff88,bold][editor: hx]{pipe_workspace} #[fg=#00ff88,bold][shell: nu]"
         );
     }
 

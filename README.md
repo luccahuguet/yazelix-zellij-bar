@@ -187,13 +187,13 @@ Those helpers are facts-in, styled-text-out. They do not read `~/.config/yazelix
 
 ## Yazelix-Specific Widgets
 
-Workspace remains Yazelix-only because it is derived from Yazelix session facts. Yazelix version display is also Yazelix-only because it reads Yazelix runtime constants
+Workspace remains Yazelix-only because it is derived from Yazelix session facts and pushed into a `pipe_workspace` widget by the Yazelix pane orchestrator. Yazelix version display is also Yazelix-only because it reads Yazelix runtime constants
 
 CPU, RAM, cursor, Codex, Claude, and OpenCode Go widgets are bar-owned standalone commands. Yazelix-only integration for those widgets is limited to generated layout wiring, environment hydration, and default cache-path derivation from the full runtime
 
 The full Yazelix runtime consumes this child repo for integrated zjstatus plugin rendering and the integrated standalone package. The child repo packages `zjstatus.wasm` from its pinned `zjstatus` flake input so the package does not require manual artifact copying
 
-`yazelix_zellij_bar_widget render-yazelix-runtime --json <config>` accepts typed runtime config from Yazelix and returns the complete child-owned zjstatus plugin block rendered from `yazelix_runtime_bar.template.kdl`. Yazelix core still owns workspace facts, session config, and runtime path resolution; this repo owns widget rendering, tab formatting, command-widget KDL, and the generic zjstatus plugin shape
+`yazelix_zellij_bar_widget render-yazelix-runtime --json <config>` accepts typed runtime config from Yazelix and returns the complete child-owned zjstatus plugin block rendered from `yazelix_runtime_bar.template.kdl`. Yazelix core still owns workspace facts, session config, and runtime path resolution; this repo owns widget rendering, tab formatting, pipe/command-widget KDL, and the generic zjstatus plugin shape
 
 When the main Yazelix repo forwards `#yazelix_zellij_bar`, it may make this repo's `zjstatus` input follow Yazelix's own `zjstatus` pin. Standalone users get the pin recorded in this repo's `flake.lock`
 

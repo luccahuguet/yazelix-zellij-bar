@@ -327,13 +327,11 @@ mod tests {
             )
         );
         assert!(plugin_block.contains(
-            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][editor: hx]{command_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YAZELIX {command_version} \" // {datetime}"
+            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][editor: hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YAZELIX {command_version} \" // {datetime}"
         ));
         assert!(plugin_block.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
-        assert!(
-            plugin_block
-                .contains("/runtime/libexec/yzx_control zellij status-cache-widget workspace")
-        );
+        assert!(plugin_block.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
+        assert!(!plugin_block.contains("command_workspace_command"));
         assert!(plugin_block.contains("/runtime/libexec/yazelix_zellij_bar_widget cpu"));
     }
 }

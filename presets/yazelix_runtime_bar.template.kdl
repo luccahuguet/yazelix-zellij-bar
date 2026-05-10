@@ -26,9 +26,7 @@ __YAZELIX_RUNTIME_TAB_RENAME__
     datetime        "#[fg=#bb88ff,bold] {format} "
     datetime_format "%H:%M %d/%m"
 
-    command_workspace_command "__YAZELIX_RUNTIME_YZX_CONTROL_BIN__ zellij status-cache-widget workspace"
-    command_workspace_format "#[fg=#00ff88,bold]{stdout}"
-    command_workspace_interval "1"
+    pipe_workspace_format "#[fg=#00ff88,bold]{output}"
 
     command_cursor_command "__YAZELIX_RUNTIME_WIDGET_BIN__ cursor"
     command_cursor_format "{stdout}"
