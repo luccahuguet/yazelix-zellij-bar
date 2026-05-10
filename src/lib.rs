@@ -1,21 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-pub const WIDGET_TRAY_PLACEHOLDER: &str = "__YAZELIX_WIDGET_TRAY__";
-pub const CUSTOM_TEXT_PLACEHOLDER: &str = "__YAZELIX_CUSTOM_TEXT_SEGMENT__";
-pub const TAB_NORMAL_PLACEHOLDER: &str = "__YAZELIX_ZJSTATUS_TAB_NORMAL__";
-pub const TAB_NORMAL_FULLSCREEN_PLACEHOLDER: &str = "__YAZELIX_ZJSTATUS_TAB_NORMAL_FULLSCREEN__";
-pub const TAB_NORMAL_SYNC_PLACEHOLDER: &str = "__YAZELIX_ZJSTATUS_TAB_NORMAL_SYNC__";
-pub const TAB_ACTIVE_PLACEHOLDER: &str = "__YAZELIX_ZJSTATUS_TAB_ACTIVE__";
-pub const TAB_ACTIVE_FULLSCREEN_PLACEHOLDER: &str = "__YAZELIX_ZJSTATUS_TAB_ACTIVE_FULLSCREEN__";
-pub const TAB_ACTIVE_SYNC_PLACEHOLDER: &str = "__YAZELIX_ZJSTATUS_TAB_ACTIVE_SYNC__";
-pub const TAB_RENAME_PLACEHOLDER: &str = "__YAZELIX_ZJSTATUS_TAB_RENAME__";
-pub const ZJSTATUS_PLUGIN_URL_PLACEHOLDER: &str = "__YAZELIX_ZJSTATUS_PLUGIN_URL__";
-pub const ZJSTATUS_COMMAND_DEFINITIONS_PLACEHOLDER: &str =
-    "__YAZELIX_ZJSTATUS_COMMAND_DEFINITIONS__";
-pub const ZJSTATUS_RUNTIME_DIR_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_DIR__";
-pub const ZJSTATUS_NU_BIN_PLACEHOLDER: &str = "__YAZELIX_NU_BIN__";
-pub const ZJSTATUS_YZX_CONTROL_BIN_PLACEHOLDER: &str = "__YAZELIX_YZX_CONTROL_BIN__";
-
 pub const WIDGET_EDITOR: &str = "editor";
 pub const WIDGET_SHELL: &str = "shell";
 pub const WIDGET_TERM: &str = "term";
@@ -63,18 +47,24 @@ pub struct BarRenderData {
     pub custom_text_segment: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct YazelixRuntimeCommandPaths {
-    pub nu_bin: String,
-    pub yzx_control_bin: String,
-    pub yazelix_zellij_bar_widget_bin: String,
-    pub runtime_dir: String,
-    pub claude_usage_display: String,
-    pub codex_usage_display: String,
-    pub opencode_go_usage_display: String,
-}
-
 pub const YAZELIX_RUNTIME_BAR_RENDER_SCHEMA_VERSION: u64 = 2;
+const YAZELIX_RUNTIME_BAR_TEMPLATE: &str =
+    include_str!("../presets/yazelix_runtime_bar.template.kdl");
+const RUNTIME_PLACEHOLDER_PREFIX: &str = "__YAZELIX_RUNTIME_";
+const RUNTIME_ZJSTATUS_PLUGIN_URL_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_ZJSTATUS_PLUGIN_URL__";
+const RUNTIME_WIDGET_TRAY_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_WIDGET_TRAY__";
+const RUNTIME_CUSTOM_TEXT_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CUSTOM_TEXT__";
+const RUNTIME_TAB_LABELS_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_TAB_LABELS__";
+const RUNTIME_TAB_RENAME_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_TAB_RENAME__";
+const RUNTIME_FLOATING_INDICATOR_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_FLOATING_INDICATOR__";
+const RUNTIME_NU_BIN_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_NU_BIN__";
+const RUNTIME_YZX_CONTROL_BIN_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_YZX_CONTROL_BIN__";
+const RUNTIME_WIDGET_BIN_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_WIDGET_BIN__";
+const RUNTIME_DIR_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_DIR__";
+const RUNTIME_CLAUDE_USAGE_DISPLAY_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CLAUDE_USAGE_DISPLAY__";
+const RUNTIME_CODEX_USAGE_DISPLAY_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CODEX_USAGE_DISPLAY__";
+const RUNTIME_OPENCODE_GO_USAGE_DISPLAY_PLACEHOLDER: &str =
+    "__YAZELIX_RUNTIME_OPENCODE_GO_USAGE_DISPLAY__";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct YazelixRuntimeBarConfig {
@@ -115,6 +105,7 @@ pub struct TabLabelFormats {
 pub enum BarRenderError {
     InvalidWidgetTrayEntry { entry: String },
     InvalidTabLabelMode { mode: String },
+    UnresolvedRuntimePresetPlaceholder { placeholder: String },
 }
 
 impl BarRenderError {
@@ -122,6 +113,9 @@ impl BarRenderError {
         match self {
             Self::InvalidWidgetTrayEntry { .. } => "invalid_widget_tray_entry",
             Self::InvalidTabLabelMode { .. } => "invalid_tab_label_mode",
+            Self::UnresolvedRuntimePresetPlaceholder { .. } => {
+                "unresolved_runtime_preset_placeholder"
+            }
         }
     }
 }
@@ -711,154 +705,6 @@ pub fn refresh_opencode_go_usage_shared_cache(
     Ok(true)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct YazelixRuntimeCommandWidget {
-    name: &'static str,
-    command: YazelixRuntimeCommand,
-    format: &'static str,
-    render_mode: Option<&'static str>,
-    interval: &'static str,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum YazelixRuntimeCommand {
-    StatusCacheWidget(&'static str),
-    BarWidget(&'static str),
-    ClaudeUsage,
-    CodexUsage,
-    OpenCodeGoUsage,
-    RuntimeNuConstantsVersion,
-}
-
-const YAZELIX_RUNTIME_COMMAND_WIDGETS: &[YazelixRuntimeCommandWidget] = &[
-    YazelixRuntimeCommandWidget {
-        name: "workspace",
-        command: YazelixRuntimeCommand::StatusCacheWidget("workspace"),
-        format: "#[fg=#00ff88,bold]{stdout}",
-        render_mode: None,
-        interval: "1",
-    },
-    YazelixRuntimeCommandWidget {
-        name: "cursor",
-        command: YazelixRuntimeCommand::BarWidget("cursor"),
-        format: "{stdout}",
-        render_mode: Some("dynamic"),
-        interval: "10",
-    },
-    YazelixRuntimeCommandWidget {
-        name: "claude_usage",
-        command: YazelixRuntimeCommand::ClaudeUsage,
-        format: "#[fg=#bb88ff,bold]{stdout}",
-        render_mode: None,
-        interval: "10",
-    },
-    YazelixRuntimeCommandWidget {
-        name: "codex_usage",
-        command: YazelixRuntimeCommand::CodexUsage,
-        format: "#[fg=#bb88ff,bold]{stdout}",
-        render_mode: None,
-        interval: "10",
-    },
-    YazelixRuntimeCommandWidget {
-        name: "opencode_go_usage",
-        command: YazelixRuntimeCommand::OpenCodeGoUsage,
-        format: "#[fg=#bb88ff,bold]{stdout}",
-        render_mode: None,
-        interval: "10",
-    },
-    YazelixRuntimeCommandWidget {
-        name: "cpu",
-        command: YazelixRuntimeCommand::BarWidget("cpu"),
-        format: " #[fg=#ff6600][cpu {stdout}]",
-        render_mode: None,
-        interval: "5",
-    },
-    YazelixRuntimeCommandWidget {
-        name: "ram",
-        command: YazelixRuntimeCommand::BarWidget("ram"),
-        format: " #[fg=#ff6600][ram {stdout}]",
-        render_mode: None,
-        interval: "5",
-    },
-    YazelixRuntimeCommandWidget {
-        name: "version",
-        command: YazelixRuntimeCommand::RuntimeNuConstantsVersion,
-        format: "{stdout}",
-        render_mode: None,
-        interval: "3600",
-    },
-];
-
-pub fn render_yazelix_runtime_command_definitions(paths: &YazelixRuntimeCommandPaths) -> String {
-    YAZELIX_RUNTIME_COMMAND_WIDGETS
-        .iter()
-        .map(|widget| render_yazelix_runtime_command_definition(widget, paths))
-        .collect::<Vec<_>>()
-        .join("\n\n")
-}
-
-fn render_yazelix_runtime_command_definition(
-    widget: &YazelixRuntimeCommandWidget,
-    paths: &YazelixRuntimeCommandPaths,
-) -> String {
-    let command = widget.command.render(paths);
-    let mut lines = vec![
-        format!(
-            "    command_{}_command \"{}\"",
-            widget.name,
-            escape_kdl_string(&command)
-        ),
-        format!(
-            "    command_{}_format \"{}\"",
-            widget.name,
-            escape_kdl_string(widget.format)
-        ),
-    ];
-    if let Some(render_mode) = widget.render_mode {
-        lines.push(format!(
-            "    command_{}_rendermode \"{}\"",
-            widget.name,
-            escape_kdl_string(render_mode)
-        ));
-    }
-    lines.push(format!(
-        "    command_{}_interval \"{}\"",
-        widget.name,
-        escape_kdl_string(widget.interval)
-    ));
-    lines.join("\n")
-}
-
-impl YazelixRuntimeCommand {
-    fn render(self, paths: &YazelixRuntimeCommandPaths) -> String {
-        match self {
-            Self::StatusCacheWidget(widget) => {
-                format!(
-                    "{} zellij status-cache-widget {widget}",
-                    paths.yzx_control_bin
-                )
-            }
-            Self::BarWidget(widget) => format!("{} {widget}", paths.yazelix_zellij_bar_widget_bin),
-            Self::ClaudeUsage => format!(
-                "{} claude --display {}",
-                paths.yazelix_zellij_bar_widget_bin, paths.claude_usage_display
-            ),
-            Self::CodexUsage => format!(
-                "{} codex --display {}",
-                paths.yazelix_zellij_bar_widget_bin, paths.codex_usage_display
-            ),
-            Self::OpenCodeGoUsage => format!(
-                "{} opencode_go --display {}",
-                paths.yazelix_zellij_bar_widget_bin, paths.opencode_go_usage_display
-            ),
-            Self::RuntimeNuConstantsVersion => format!(
-                "{} -c 'use {}/nushell/scripts/utils/constants.nu YAZELIX_VERSION; $YAZELIX_VERSION'",
-                paths.nu_bin, paths.runtime_dir
-            ),
-        }
-    }
-}
-
 fn escape_kdl_string(value: &str) -> String {
     value
         .replace('\\', "\\\\")
@@ -888,61 +734,90 @@ pub fn render_yazelix_runtime_plugin_block(
         custom_text: config.custom_text.clone(),
     })?;
     let tab_labels = render_zjstatus_tab_label_formats(&config.tab_label_mode)?;
-    let command_definitions =
-        render_yazelix_runtime_command_definitions(&YazelixRuntimeCommandPaths {
-            nu_bin: config.nu_bin.clone(),
-            yzx_control_bin: config.yzx_control_bin.clone(),
-            yazelix_zellij_bar_widget_bin: config.yazelix_zellij_bar_widget_bin.clone(),
-            runtime_dir: config.runtime_dir.clone(),
-            claude_usage_display: config.claude_usage_display.clone(),
-            codex_usage_display: config.codex_usage_display.clone(),
-            opencode_go_usage_display: config.opencode_go_usage_display.clone(),
-        });
+    let replacements = [
+        (
+            RUNTIME_ZJSTATUS_PLUGIN_URL_PLACEHOLDER,
+            escape_kdl_string(&config.zjstatus_plugin_url),
+        ),
+        (
+            RUNTIME_WIDGET_TRAY_PLACEHOLDER,
+            bar_segments.widget_tray_segment,
+        ),
+        (
+            RUNTIME_CUSTOM_TEXT_PLACEHOLDER,
+            bar_segments.custom_text_segment,
+        ),
+        (
+            RUNTIME_TAB_LABELS_PLACEHOLDER,
+            render_tab_label_block(&tab_labels),
+        ),
+        (
+            RUNTIME_TAB_RENAME_PLACEHOLDER,
+            format!("    {}", tab_labels.tab_rename),
+        ),
+        (
+            RUNTIME_FLOATING_INDICATOR_PLACEHOLDER,
+            escape_kdl_string("\u{2b1a} "),
+        ),
+        (
+            RUNTIME_NU_BIN_PLACEHOLDER,
+            escape_kdl_string(&config.nu_bin),
+        ),
+        (
+            RUNTIME_YZX_CONTROL_BIN_PLACEHOLDER,
+            escape_kdl_string(&config.yzx_control_bin),
+        ),
+        (
+            RUNTIME_WIDGET_BIN_PLACEHOLDER,
+            escape_kdl_string(&config.yazelix_zellij_bar_widget_bin),
+        ),
+        (
+            RUNTIME_DIR_PLACEHOLDER,
+            escape_kdl_string(&config.runtime_dir),
+        ),
+        (
+            RUNTIME_CLAUDE_USAGE_DISPLAY_PLACEHOLDER,
+            escape_kdl_string(&config.claude_usage_display),
+        ),
+        (
+            RUNTIME_CODEX_USAGE_DISPLAY_PLACEHOLDER,
+            escape_kdl_string(&config.codex_usage_display),
+        ),
+        (
+            RUNTIME_OPENCODE_GO_USAGE_DISPLAY_PLACEHOLDER,
+            escape_kdl_string(&config.opencode_go_usage_display),
+        ),
+    ];
+    let mut rendered = YAZELIX_RUNTIME_BAR_TEMPLATE.to_string();
+    for (placeholder, value) in replacements {
+        rendered = rendered.replace(placeholder, &value);
+    }
+    if let Some(placeholder) = unresolved_runtime_preset_placeholder(&rendered) {
+        return Err(BarRenderError::UnresolvedRuntimePresetPlaceholder { placeholder });
+    }
+    Ok(rendered)
+}
 
-    Ok(vec![
-        format!(
-            "plugin location=\"{}\" {{",
-            escape_kdl_string(&config.zjstatus_plugin_url)
-        ),
-        r#"    format_left   "{mode} {tabs}""#.to_string(),
-        r#"    format_center """#.to_string(),
-        format!(
-            r##"    format_right  "#[fg=#ff0088,bold]{{session}}{} {}#[fg=#00ccff,bold]YAZELIX {{command_version}} " // {{datetime}}"##,
-            bar_segments.widget_tray_segment, bar_segments.custom_text_segment
-        ),
-        r#"    format_hide_on_overlength "true""#.to_string(),
-        r#"    format_precedence "lrc""#.to_string(),
-        r#"    format_space  """#.to_string(),
-        String::new(),
-        r#"    border_enabled  "false""#.to_string(),
-        String::new(),
-        r##"    mode_normal  "#[bg=#00ff88,fg=#000000,bold] NORMAL ""##.to_string(),
-        r##"    mode_tmux    "#[bg=#ffff00,fg=#000000,bold] TMUX ""##.to_string(),
-        r##"    mode_session "#[bg=#ff6600,fg=#000000,bold] SESSION ""##.to_string(),
-        r##"    mode_scroll  "#[bg=#ff0088,fg=#ffffff,bold] SCROLL ""##.to_string(),
-        String::new(),
-        format!("    {}", tab_labels.tab_normal),
-        format!("    {}", tab_labels.tab_normal_fullscreen),
-        format!("    {}", tab_labels.tab_normal_sync),
-        format!("    {}", tab_labels.tab_active),
-        format!("    {}", tab_labels.tab_active_fullscreen),
-        format!("    {}", tab_labels.tab_active_sync),
-        r#"    tab_separator """#.to_string(),
-        format!("    {}", tab_labels.tab_rename),
-        r#"    tab_sync_indicator       "<> ""#.to_string(),
-        r#"    tab_fullscreen_indicator "[] ""#.to_string(),
-        format!(r#"    tab_floating_indicator   "{} ""#, "\u{2b1a}"),
-        r#"    tab_display_count "6""#.to_string(),
-        r##"    tab_truncate_start_format "#[fg=#ff6600,bold]< +{count} ... ""##.to_string(),
-        r##"    tab_truncate_end_format   "#[fg=#ff6600,bold]... +{count} > ""##.to_string(),
-        String::new(),
-        r##"    datetime        "#[fg=#bb88ff,bold] {format} ""##.to_string(),
-        r#"    datetime_format "%H:%M %d/%m""#.to_string(),
-        String::new(),
-        command_definitions,
-        "}".to_string(),
+fn render_tab_label_block(tab_labels: &TabLabelFormats) -> String {
+    [
+        tab_labels.tab_normal,
+        tab_labels.tab_normal_fullscreen,
+        tab_labels.tab_normal_sync,
+        tab_labels.tab_active,
+        tab_labels.tab_active_fullscreen,
+        tab_labels.tab_active_sync,
     ]
-    .join("\n"))
+    .into_iter()
+    .map(|line| format!("    {line}"))
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+fn unresolved_runtime_preset_placeholder(rendered: &str) -> Option<String> {
+    let start = rendered.find(RUNTIME_PLACEHOLDER_PREFIX)?;
+    let suffix = &rendered[start + RUNTIME_PLACEHOLDER_PREFIX.len()..];
+    let end = suffix.find("__")?;
+    Some(rendered[start..start + RUNTIME_PLACEHOLDER_PREFIX.len() + end + 2].to_string())
 }
 
 pub fn render_widget_tray_segment(request: &BarRenderRequest) -> Result<String, BarRenderError> {
@@ -2675,11 +2550,19 @@ mod tests {
         );
     }
 
-    // Regression: the full Yazelix integration renderer owns generic zjstatus command-definition KDL while Yazelix core owns only resolved helper paths.
-    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
-    #[test]
-    fn renders_yazelix_runtime_command_definitions() {
-        let rendered = render_yazelix_runtime_command_definitions(&YazelixRuntimeCommandPaths {
+    fn runtime_bar_config() -> YazelixRuntimeBarConfig {
+        YazelixRuntimeBarConfig {
+            zjstatus_plugin_url: "file:/runtime/share/zjstatus.wasm".to_string(),
+            widget_tray: vec![
+                "editor".to_string(),
+                "workspace".to_string(),
+                "cpu".to_string(),
+            ],
+            editor_label: "hx".to_string(),
+            shell_label: "nu".to_string(),
+            terminal_label: "ghostty".to_string(),
+            custom_text: "demo".to_string(),
+            tab_label_mode: "compact".to_string(),
             nu_bin: "/runtime/bin/nu".to_string(),
             yzx_control_bin: "/runtime/bin/yzx_control".to_string(),
             yazelix_zellij_bar_widget_bin: "/runtime/bin/yazelix_zellij_bar_widget".to_string(),
@@ -2687,39 +2570,42 @@ mod tests {
             claude_usage_display: "both".to_string(),
             codex_usage_display: "quota".to_string(),
             opencode_go_usage_display: "both".to_string(),
-        });
+        }
+    }
 
+    // Regression: integrated Yazelix KDL shape is owned by the child runtime template, not hardcoded in main or rebuilt as Rust string assembly.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn renders_yazelix_runtime_plugin_block_from_template() {
+        let rendered = render_yazelix_runtime_plugin_block(&runtime_bar_config()).unwrap();
+
+        assert!(YAZELIX_RUNTIME_BAR_TEMPLATE.contains("command_workspace_command"));
+        assert!(rendered.contains(r#"plugin location="file:/runtime/share/zjstatus.wasm" {"#));
+        assert!(rendered.contains(
+            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][editor: hx]{command_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YAZELIX {command_version} \" // {datetime}"
+        ));
+        assert!(rendered.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
         assert!(rendered.contains(
             r#"command_workspace_command "/runtime/bin/yzx_control zellij status-cache-widget workspace""#
-        ));
-        assert!(rendered.contains(r##"command_workspace_format "#[fg=#00ff88,bold]{stdout}""##));
-        assert!(rendered.contains(r#"command_workspace_interval "1""#));
-        assert!(
-            rendered.contains(
-                r#"command_cursor_command "/runtime/bin/yazelix_zellij_bar_widget cursor""#
-            )
-        );
-        assert!(rendered.contains(r#"command_cursor_rendermode "dynamic""#));
-        assert!(rendered.contains(
-            r#"command_claude_usage_command "/runtime/bin/yazelix_zellij_bar_widget claude --display both""#
         ));
         assert!(rendered.contains(
             r#"command_codex_usage_command "/runtime/bin/yazelix_zellij_bar_widget codex --display quota""#
         ));
         assert!(rendered.contains(
-            r#"command_opencode_go_usage_command "/runtime/bin/yazelix_zellij_bar_widget opencode_go --display both""#
-        ));
-        assert!(
-            rendered
-                .contains(r#"command_cpu_command "/runtime/bin/yazelix_zellij_bar_widget cpu""#)
-        );
-        assert!(
-            rendered
-                .contains(r#"command_ram_command "/runtime/bin/yazelix_zellij_bar_widget ram""#)
-        );
-        assert!(rendered.contains(
             r#"command_version_command "/runtime/bin/nu -c 'use /runtime/nushell/scripts/utils/constants.nu YAZELIX_VERSION; $YAZELIX_VERSION'""#
         ));
+        assert!(!rendered.contains(RUNTIME_PLACEHOLDER_PREFIX));
+    }
+
+    // Defends: vanilla users keep a simple standalone preset and do not inherit integrated Yazelix runtime placeholders.
+    // Strength: defect=1 behavior=2 resilience=2 cost=1 uniqueness=2 total=8/10
+    #[test]
+    fn standalone_preset_keeps_runtime_template_separate() {
+        let standalone = include_str!("../presets/yazelix_zellij_bar.kdl");
+
+        assert!(standalone.contains("__YAZELIX_ZELLIJ_BAR_ZJSTATUS_WASM__"));
+        assert!(!standalone.contains(RUNTIME_PLACEHOLDER_PREFIX));
+        assert!(!standalone.contains("yzx_control"));
     }
 
     // Defends: CPU widget math uses /proc/stat deltas and hides malformed samples.

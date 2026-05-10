@@ -101,6 +101,7 @@
             substitute presets/yazelix_zellij_bar.kdl "$out/share/yazelix_zellij_bar/yazelix_zellij_bar.kdl" \
               --replace-fail "__YAZELIX_ZELLIJ_BAR_ZJSTATUS_WASM__" "file:$out/share/yazelix_zellij_bar/zjstatus.wasm"
             install -Dm644 presets/yazelix_zellij_bar.kdl "$out/share/yazelix_zellij_bar/yazelix_zellij_bar.template.kdl"
+            install -Dm644 presets/yazelix_runtime_bar.template.kdl "$out/share/yazelix_zellij_bar/yazelix_runtime_bar.template.kdl"
             install -Dm755 ${tools}/bin/yazelix_zellij_bar_widget "$out/bin/yazelix_zellij_bar_widget"
             cp -R presets/examples "$out/share/yazelix_zellij_bar/examples"
             install -Dm644 README.md "$out/share/doc/yazelix_zellij_bar/README.md"
@@ -120,6 +121,7 @@
             test -x "$out/bin/yazelix_zellij_bar_widget"
             grep -q 'location="file:' "$out/share/yazelix_zellij_bar/yazelix_zellij_bar.kdl"
             ! grep -q '__YAZELIX_ZELLIJ_BAR_ZJSTATUS_WASM__' "$out/share/yazelix_zellij_bar/yazelix_zellij_bar.kdl"
+            test -s "$out/share/yazelix_zellij_bar/yazelix_runtime_bar.template.kdl"
             test -s "$out/share/yazelix_zellij_bar/examples/custom_command_widgets.kdl"
             test -s "$out/share/yazelix_zellij_bar/examples/standalone_zellij_layout.kdl"
             test -s "$out/share/yazelix_zellij_bar/examples/yazelix_runtime_widgets.kdl"
@@ -130,6 +132,7 @@
           passthru = {
             presetPath = "share/yazelix_zellij_bar/yazelix_zellij_bar.kdl";
             templatePath = "share/yazelix_zellij_bar/yazelix_zellij_bar.template.kdl";
+            runtimeTemplatePath = "share/yazelix_zellij_bar/yazelix_runtime_bar.template.kdl";
             examplesPath = "share/yazelix_zellij_bar/examples";
             widgetPath = "bin/yazelix_zellij_bar_widget";
             wasmPath = "share/yazelix_zellij_bar/zjstatus.wasm";

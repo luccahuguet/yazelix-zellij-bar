@@ -17,12 +17,13 @@ The package installs:
 - `share/yazelix_zellij_bar/zjstatus.wasm`
 - `share/yazelix_zellij_bar/yazelix_zellij_bar.kdl`
 - `share/yazelix_zellij_bar/yazelix_zellij_bar.template.kdl`
+- `share/yazelix_zellij_bar/yazelix_runtime_bar.template.kdl`
 - `share/yazelix_zellij_bar/examples/custom_command_widgets.kdl`
 - `share/yazelix_zellij_bar/examples/standalone_zellij_layout.kdl`
 - `share/yazelix_zellij_bar/examples/yazelix_runtime_widgets.kdl`
 - `share/doc/yazelix_zellij_bar/README.md`
 
-Use `yazelix_zellij_bar.kdl` as a Zellij layout plugin block. The template keeps `__YAZELIX_ZELLIJ_BAR_ZJSTATUS_WASM__` for users who want to substitute a different pinned `zjstatus.wasm`. The example snippets are small blocks to copy into the plugin body rather than alternate full presets
+Use `yazelix_zellij_bar.kdl` as a Zellij layout plugin block. The template keeps `__YAZELIX_ZELLIJ_BAR_ZJSTATUS_WASM__` for users who want to substitute a different pinned `zjstatus.wasm`. The runtime template is for full Yazelix and embedders; vanilla Zellij users can ignore it. The example snippets are small blocks to copy into the plugin body rather than alternate full presets
 
 ## Minimal Zellij Layout Snippet
 
@@ -142,7 +143,7 @@ The Rust crate also exposes renderer helpers for embedders that want Yazelix-sty
 
 - `render_zjstatus_bar_segments` for editor, shell, terminal, custom text, and widget-tray placeholders
 - `render_zjstatus_tab_label_formats` for full and compact tab labels
-- `render_yazelix_runtime_plugin_block` for the full integrated Yazelix zjstatus plugin block from typed runtime config
+- `render_yazelix_runtime_plugin_block` for the full integrated Yazelix zjstatus plugin block from typed runtime config and the child-owned runtime KDL template
 - `render_cursor_status_widget` for `yazelix-cursors`-compatible cursor facts
 - `render_codex_usage_status_widget` for cached Codex usage facts
 - `render_windowed_agent_usage_status_widget` for Claude, OpenCode Go, or another cached windowed provider
@@ -192,7 +193,7 @@ CPU, RAM, cursor, Codex, Claude, and OpenCode Go widgets are bar-owned standalon
 
 The full Yazelix runtime consumes this child repo for integrated zjstatus plugin rendering and the integrated standalone package. The child repo packages `zjstatus.wasm` from its pinned `zjstatus` flake input so the package does not require manual artifact copying
 
-`yazelix_zellij_bar_widget render-yazelix-runtime --json <config>` accepts typed runtime config from Yazelix and returns the complete child-owned zjstatus plugin block. Yazelix core still owns workspace facts, session config, and runtime path resolution; this repo owns widget rendering, tab formatting, command-widget KDL, and the generic zjstatus plugin shape
+`yazelix_zellij_bar_widget render-yazelix-runtime --json <config>` accepts typed runtime config from Yazelix and returns the complete child-owned zjstatus plugin block rendered from `yazelix_runtime_bar.template.kdl`. Yazelix core still owns workspace facts, session config, and runtime path resolution; this repo owns widget rendering, tab formatting, command-widget KDL, and the generic zjstatus plugin shape
 
 When the main Yazelix repo forwards `#yazelix_zellij_bar`, it may make this repo's `zjstatus` input follow Yazelix's own `zjstatus` pin. Standalone users get the pin recorded in this repo's `flake.lock`
 
@@ -200,7 +201,7 @@ Use `share/yazelix_zellij_bar/examples/yazelix_runtime_widgets.kdl` only inside 
 
 ## Current Limit
 
-Zellij/zjstatus presets do not currently have a native include or variables layer. Edit the KDL directly for brand, color, order, and command-widget changes; copy `yazelix_zellij_bar.template.kdl` when substituting a different pinned `zjstatus.wasm`
+Zellij/zjstatus presets do not currently have a native include or variables layer. Edit the standalone KDL directly for brand, color, order, and command-widget changes; copy `yazelix_zellij_bar.template.kdl` when substituting a different pinned `zjstatus.wasm`. The integrated Yazelix runtime uses a separate template so standalone customizations stay plain Zellij KDL
 
 ## Release Process
 
