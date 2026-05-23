@@ -62,9 +62,13 @@ const RUNTIME_YZX_CONTROL_BIN_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_YZX_CONTROL
 const RUNTIME_WIDGET_BIN_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_WIDGET_BIN__";
 const RUNTIME_DIR_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_DIR__";
 const RUNTIME_CLAUDE_USAGE_DISPLAY_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CLAUDE_USAGE_DISPLAY__";
+const RUNTIME_CLAUDE_USAGE_PERIODS_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CLAUDE_USAGE_PERIODS__";
 const RUNTIME_CODEX_USAGE_DISPLAY_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CODEX_USAGE_DISPLAY__";
+const RUNTIME_CODEX_USAGE_PERIODS_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CODEX_USAGE_PERIODS__";
 const RUNTIME_OPENCODE_GO_USAGE_DISPLAY_PLACEHOLDER: &str =
     "__YAZELIX_RUNTIME_OPENCODE_GO_USAGE_DISPLAY__";
+const RUNTIME_OPENCODE_GO_USAGE_PERIODS_PLACEHOLDER: &str =
+    "__YAZELIX_RUNTIME_OPENCODE_GO_USAGE_PERIODS__";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct YazelixRuntimeBarConfig {
@@ -80,8 +84,14 @@ pub struct YazelixRuntimeBarConfig {
     pub yazelix_zellij_bar_widget_bin: String,
     pub runtime_dir: String,
     pub claude_usage_display: String,
+    #[serde(default = "default_claude_usage_periods")]
+    pub claude_usage_periods: Vec<String>,
     pub codex_usage_display: String,
+    #[serde(default = "default_codex_usage_periods")]
+    pub codex_usage_periods: Vec<String>,
     pub opencode_go_usage_display: String,
+    #[serde(default = "default_opencode_go_usage_periods")]
+    pub opencode_go_usage_periods: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -161,6 +171,22 @@ impl AgentUsagePeriod {
     }
 }
 
+pub fn default_claude_usage_periods() -> Vec<String> {
+    vec!["5h".to_string(), "week".to_string()]
+}
+
+pub fn default_codex_usage_periods() -> Vec<String> {
+    vec!["5h".to_string(), "week".to_string()]
+}
+
+pub fn default_opencode_go_usage_periods() -> Vec<String> {
+    vec!["5h".to_string(), "week".to_string(), "month".to_string()]
+}
+
+pub fn agent_usage_periods_arg(periods: &[String]) -> String {
+    periods.join(",")
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WindowedAgentUsageFacts {
     pub updated_at_unix_seconds: Option<u64>,
@@ -219,6 +245,7 @@ pub struct CodexUsageWidgetOptions<'a> {
     pub error_backoff_seconds: u64,
     pub timeout: std::time::Duration,
     pub display: AgentUsageDisplay,
+    pub periods: &'a [AgentUsagePeriod],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -230,6 +257,7 @@ pub struct ClaudeUsageWidgetOptions<'a> {
     pub error_backoff_seconds: u64,
     pub timeout: std::time::Duration,
     pub display: AgentUsageDisplay,
+    pub periods: &'a [AgentUsagePeriod],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -240,6 +268,7 @@ pub struct OpenCodeGoUsageWidgetOptions<'a> {
     pub max_age_seconds: u64,
     pub error_backoff_seconds: u64,
     pub display: AgentUsageDisplay,
+    pub periods: &'a [AgentUsagePeriod],
 }
 
 pub fn codex_usage_widget_text(options: CodexUsageWidgetOptions<'_>) -> Result<String, String> {
@@ -254,6 +283,7 @@ pub fn codex_usage_widget_text(options: CodexUsageWidgetOptions<'_>) -> Result<S
     Ok(render_codex_usage_widget_from_cache(
         options.cache_path,
         options.display,
+        options.periods,
     ))
 }
 
@@ -269,6 +299,7 @@ pub fn claude_usage_widget_text(options: ClaudeUsageWidgetOptions<'_>) -> Result
     Ok(render_claude_usage_widget_from_cache(
         options.cache_path,
         options.display,
+        options.periods,
     ))
 }
 
@@ -286,12 +317,14 @@ pub fn opencode_go_usage_widget_text(
     Ok(render_opencode_go_usage_widget_from_cache(
         options.cache_path,
         options.display,
+        options.periods,
     ))
 }
 
 pub fn render_opencode_go_usage_widget_from_cache(
     path: &std::path::Path,
     display: AgentUsageDisplay,
+    periods: &[AgentUsagePeriod],
 ) -> String {
     read_opencode_go_usage_shared_cache_value(path)
         .and_then(|cache| cache.get("opencode_go").cloned())
@@ -299,11 +332,7 @@ pub fn render_opencode_go_usage_widget_from_cache(
             render_windowed_agent_usage_status_widget(
                 "go",
                 &windowed_usage_facts_from_cache_entry(&entry),
-                &[
-                    AgentUsagePeriod::FiveHour,
-                    AgentUsagePeriod::Weekly,
-                    AgentUsagePeriod::Monthly,
-                ],
+                periods,
                 display,
             )
         })
@@ -313,6 +342,7 @@ pub fn render_opencode_go_usage_widget_from_cache(
 pub fn render_claude_usage_widget_from_cache(
     path: &std::path::Path,
     display: AgentUsageDisplay,
+    periods: &[AgentUsagePeriod],
 ) -> String {
     read_claude_usage_shared_cache_value(path)
         .and_then(|cache| cache.get("claude").cloned())
@@ -320,7 +350,7 @@ pub fn render_claude_usage_widget_from_cache(
             render_windowed_agent_usage_status_widget(
                 "claude",
                 &windowed_usage_facts_from_cache_entry(&entry),
-                &[AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly],
+                periods,
                 display,
             )
         })
@@ -330,13 +360,15 @@ pub fn render_claude_usage_widget_from_cache(
 pub fn render_codex_usage_widget_from_cache(
     path: &std::path::Path,
     display: AgentUsageDisplay,
+    periods: &[AgentUsagePeriod],
 ) -> String {
     read_codex_usage_shared_cache_value(path)
         .and_then(|cache| cache.get("codex").cloned())
         .map(|entry| {
-            render_codex_usage_status_widget(
+            render_codex_usage_status_widget_for_periods(
                 &windowed_usage_facts_from_cache_entry(&entry),
                 display,
+                periods,
             )
         })
         .unwrap_or_default()
@@ -780,12 +812,24 @@ pub fn render_yazelix_runtime_plugin_block(
             escape_kdl_string(&config.claude_usage_display),
         ),
         (
+            RUNTIME_CLAUDE_USAGE_PERIODS_PLACEHOLDER,
+            escape_kdl_string(&agent_usage_periods_arg(&config.claude_usage_periods)),
+        ),
+        (
             RUNTIME_CODEX_USAGE_DISPLAY_PLACEHOLDER,
             escape_kdl_string(&config.codex_usage_display),
         ),
         (
+            RUNTIME_CODEX_USAGE_PERIODS_PLACEHOLDER,
+            escape_kdl_string(&agent_usage_periods_arg(&config.codex_usage_periods)),
+        ),
+        (
             RUNTIME_OPENCODE_GO_USAGE_DISPLAY_PLACEHOLDER,
             escape_kdl_string(&config.opencode_go_usage_display),
+        ),
+        (
+            RUNTIME_OPENCODE_GO_USAGE_PERIODS_PLACEHOLDER,
+            escape_kdl_string(&agent_usage_periods_arg(&config.opencode_go_usage_periods)),
         ),
     ];
     let mut rendered = YAZELIX_RUNTIME_BAR_TEMPLATE.to_string();
@@ -2032,17 +2076,44 @@ pub fn render_codex_usage_status_widget(
     facts: &WindowedAgentUsageFacts,
     display: AgentUsageDisplay,
 ) -> String {
-    render_agent_usage_status_widget("codex", &render_codex_usage_summary(facts, display))
+    render_codex_usage_status_widget_for_periods(
+        facts,
+        display,
+        &[AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly],
+    )
+}
+
+pub fn render_codex_usage_status_widget_for_periods(
+    facts: &WindowedAgentUsageFacts,
+    display: AgentUsageDisplay,
+    periods: &[AgentUsagePeriod],
+) -> String {
+    render_agent_usage_status_widget(
+        "codex",
+        &render_codex_usage_summary_for_periods(facts, display, periods),
+    )
 }
 
 pub fn render_codex_usage_summary(
     facts: &WindowedAgentUsageFacts,
     display: AgentUsageDisplay,
 ) -> String {
+    render_codex_usage_summary_for_periods(
+        facts,
+        display,
+        &[AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly],
+    )
+}
+
+pub fn render_codex_usage_summary_for_periods(
+    facts: &WindowedAgentUsageFacts,
+    display: AgentUsageDisplay,
+    periods: &[AgentUsagePeriod],
+) -> String {
     let mut parts = Vec::new();
-    for period in [AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly] {
-        let (tokens, remaining_percent) = usage_period_values(facts, period);
-        let label = codex_reset_window_label(facts, period)
+    for period in periods {
+        let (tokens, remaining_percent) = usage_period_values(facts, *period);
+        let label = codex_reset_window_label(facts, *period)
             .unwrap_or_else(|| period.short_label().to_string());
         if let Some(part) = render_codex_usage_window(&label, tokens, remaining_percent, display) {
             parts.push(part);
@@ -2568,8 +2639,15 @@ mod tests {
             yazelix_zellij_bar_widget_bin: "/runtime/bin/yazelix_zellij_bar_widget".to_string(),
             runtime_dir: "/runtime".to_string(),
             claude_usage_display: "both".to_string(),
+            claude_usage_periods: vec!["5h".to_string(), "week".to_string()],
             codex_usage_display: "quota".to_string(),
+            codex_usage_periods: vec!["5h".to_string(), "week".to_string()],
             opencode_go_usage_display: "both".to_string(),
+            opencode_go_usage_periods: vec![
+                "5h".to_string(),
+                "week".to_string(),
+                "month".to_string(),
+            ],
         }
     }
 
@@ -2588,7 +2666,7 @@ mod tests {
         assert!(rendered.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
         assert!(!rendered.contains("command_workspace_command"));
         assert!(rendered.contains(
-            r#"command_codex_usage_command "/runtime/bin/yazelix_zellij_bar_widget codex --display quota""#
+            r#"command_codex_usage_command "/runtime/bin/yazelix_zellij_bar_widget codex --display quota --periods 5h,week""#
         ));
         assert!(rendered.contains(
             r#"command_version_command "/runtime/bin/nu -c 'use /runtime/nushell/scripts/utils/constants.nu YAZELIX_VERSION; $YAZELIX_VERSION'""#
@@ -2856,6 +2934,7 @@ fi
             error_backoff_seconds: 1_800,
             timeout: std::time::Duration::from_secs(1),
             display: AgentUsageDisplay::Both,
+            periods: &[AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly],
         })
         .unwrap();
 
@@ -2968,6 +3047,7 @@ fi
             error_backoff_seconds: 1_800,
             timeout: std::time::Duration::from_secs(1),
             display: AgentUsageDisplay::Both,
+            periods: &[AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly],
         })
         .unwrap();
 
@@ -3138,6 +3218,11 @@ fi
             max_age_seconds: 600,
             error_backoff_seconds: 1_800,
             display: AgentUsageDisplay::Both,
+            periods: &[
+                AgentUsagePeriod::FiveHour,
+                AgentUsagePeriod::Weekly,
+                AgentUsagePeriod::Monthly,
+            ],
         })
         .unwrap();
 

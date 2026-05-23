@@ -75,6 +75,10 @@ fn run_cursor(args: &[String]) -> Result<String, String> {
 fn run_claude_usage(args: &[String]) -> Result<String, String> {
     let mut cache_path = None;
     let mut display = yazelix_zellij_bar::AgentUsageDisplay::Both;
+    let mut periods = vec![
+        yazelix_zellij_bar::AgentUsagePeriod::FiveHour,
+        yazelix_zellij_bar::AgentUsagePeriod::Weekly,
+    ];
     let mut max_age_seconds = 600;
     let mut error_backoff_seconds = 1_800;
     let mut timeout_ms = 5_000;
@@ -91,6 +95,12 @@ fn run_claude_usage(args: &[String]) -> Result<String, String> {
                 display = parse_agent_usage_display(
                     iter.next()
                         .ok_or_else(|| "--display requires a value".to_string())?,
+                )?;
+            }
+            "--periods" => {
+                periods = parse_agent_usage_periods(
+                    iter.next()
+                        .ok_or_else(|| "--periods requires a value".to_string())?,
                 )?;
             }
             "--max-age-seconds" => {
@@ -111,7 +121,7 @@ fn run_claude_usage(args: &[String]) -> Result<String, String> {
         .or_else(yazelix_zellij_bar::claude_usage_cache_path_from_env)
         .or_else(|| default_cache_path("claude_usage_cache_v1.json"))
         .ok_or_else(|| {
-            "claude usage: yazelix_zellij_bar_widget claude [--cache <path>] [--display quota|token|both]".to_string()
+            "claude usage: yazelix_zellij_bar_widget claude [--cache <path>] [--display quota|token|both] [--periods 5h,week]".to_string()
         })?;
     yazelix_zellij_bar::claude_usage_widget_text(yazelix_zellij_bar::ClaudeUsageWidgetOptions {
         cache_path: &cache_path,
@@ -121,12 +131,17 @@ fn run_claude_usage(args: &[String]) -> Result<String, String> {
         error_backoff_seconds,
         timeout: std::time::Duration::from_millis(timeout_ms),
         display,
+        periods: &periods,
     })
 }
 
 fn run_codex_usage(args: &[String]) -> Result<String, String> {
     let mut cache_path = None;
     let mut display = yazelix_zellij_bar::AgentUsageDisplay::Quota;
+    let mut periods = vec![
+        yazelix_zellij_bar::AgentUsagePeriod::FiveHour,
+        yazelix_zellij_bar::AgentUsagePeriod::Weekly,
+    ];
     let mut max_age_seconds = 600;
     let mut error_backoff_seconds = 1_800;
     let mut timeout_ms = 5_000;
@@ -143,6 +158,12 @@ fn run_codex_usage(args: &[String]) -> Result<String, String> {
                 display = parse_agent_usage_display(
                     iter.next()
                         .ok_or_else(|| "--display requires a value".to_string())?,
+                )?;
+            }
+            "--periods" => {
+                periods = parse_agent_usage_periods(
+                    iter.next()
+                        .ok_or_else(|| "--periods requires a value".to_string())?,
                 )?;
             }
             "--max-age-seconds" => {
@@ -163,7 +184,7 @@ fn run_codex_usage(args: &[String]) -> Result<String, String> {
         .or_else(yazelix_zellij_bar::codex_usage_cache_path_from_env)
         .or_else(|| default_cache_path("codex_usage_cache_v2.json"))
         .ok_or_else(|| {
-            "codex usage: yazelix_zellij_bar_widget codex [--cache <path>] [--display quota|token|both]".to_string()
+            "codex usage: yazelix_zellij_bar_widget codex [--cache <path>] [--display quota|token|both] [--periods 5h,week]".to_string()
         })?;
     yazelix_zellij_bar::codex_usage_widget_text(yazelix_zellij_bar::CodexUsageWidgetOptions {
         cache_path: &cache_path,
@@ -173,6 +194,7 @@ fn run_codex_usage(args: &[String]) -> Result<String, String> {
         error_backoff_seconds,
         timeout: std::time::Duration::from_millis(timeout_ms),
         display,
+        periods: &periods,
     })
 }
 
@@ -180,6 +202,11 @@ fn run_opencode_go_usage(args: &[String]) -> Result<String, String> {
     let mut cache_path = None;
     let mut db_paths = Vec::new();
     let mut display = yazelix_zellij_bar::AgentUsageDisplay::Both;
+    let mut periods = vec![
+        yazelix_zellij_bar::AgentUsagePeriod::FiveHour,
+        yazelix_zellij_bar::AgentUsagePeriod::Weekly,
+        yazelix_zellij_bar::AgentUsagePeriod::Monthly,
+    ];
     let mut max_age_seconds = 600;
     let mut error_backoff_seconds = 1_800;
     let mut iter = args.iter();
@@ -203,6 +230,12 @@ fn run_opencode_go_usage(args: &[String]) -> Result<String, String> {
                         .ok_or_else(|| "--display requires a value".to_string())?,
                 )?;
             }
+            "--periods" => {
+                periods = parse_agent_usage_periods(
+                    iter.next()
+                        .ok_or_else(|| "--periods requires a value".to_string())?,
+                )?;
+            }
             "--max-age-seconds" => {
                 max_age_seconds = parse_u64_arg("--max-age-seconds", iter.next())?;
             }
@@ -218,7 +251,7 @@ fn run_opencode_go_usage(args: &[String]) -> Result<String, String> {
         .or_else(yazelix_zellij_bar::opencode_go_usage_cache_path_from_env)
         .or_else(|| default_cache_path("opencode_go_usage_cache_v1.json"))
         .ok_or_else(|| {
-            "opencode_go usage: yazelix_zellij_bar_widget opencode_go [--cache <path>] [--db <path>] [--display quota|token|both]".to_string()
+            "opencode_go usage: yazelix_zellij_bar_widget opencode_go [--cache <path>] [--db <path>] [--display quota|token|both] [--periods 5h,week,month]".to_string()
         })?;
     if db_paths.is_empty() {
         db_paths = yazelix_zellij_bar::opencode_db_candidates_from_env();
@@ -231,6 +264,7 @@ fn run_opencode_go_usage(args: &[String]) -> Result<String, String> {
             max_age_seconds,
             error_backoff_seconds,
             display,
+            periods: &periods,
         },
     )
 }
@@ -241,6 +275,35 @@ fn parse_agent_usage_display(raw: &str) -> Result<yazelix_zellij_bar::AgentUsage
         "token" | "tokens" => Ok(yazelix_zellij_bar::AgentUsageDisplay::Token),
         "quota" => Ok(yazelix_zellij_bar::AgentUsageDisplay::Quota),
         _ => Err(format!("invalid display mode: {raw}")),
+    }
+}
+
+fn parse_agent_usage_periods(
+    raw: &str,
+) -> Result<Vec<yazelix_zellij_bar::AgentUsagePeriod>, String> {
+    let mut periods = Vec::new();
+    for value in raw.split(',') {
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        let period = parse_agent_usage_period(value)?;
+        if !periods.contains(&period) {
+            periods.push(period);
+        }
+    }
+    if periods.is_empty() {
+        return Err("--periods must include at least one period".to_string());
+    }
+    Ok(periods)
+}
+
+fn parse_agent_usage_period(raw: &str) -> Result<yazelix_zellij_bar::AgentUsagePeriod, String> {
+    match raw {
+        "5h" | "five_hour" | "five-hour" => Ok(yazelix_zellij_bar::AgentUsagePeriod::FiveHour),
+        "week" | "weekly" | "wk" => Ok(yazelix_zellij_bar::AgentUsagePeriod::Weekly),
+        "month" | "monthly" | "mo" => Ok(yazelix_zellij_bar::AgentUsagePeriod::Monthly),
+        _ => Err(format!("invalid usage period: {raw}")),
     }
 }
 
@@ -311,8 +374,11 @@ mod tests {
                 "yazelix_zellij_bar_widget_bin": "/runtime/libexec/yazelix_zellij_bar_widget",
                 "runtime_dir": "/runtime",
                 "claude_usage_display": "both",
+                "claude_usage_periods": ["5h", "week"],
                 "codex_usage_display": "quota",
-                "opencode_go_usage_display": "both"
+                "codex_usage_periods": ["5h", "week"],
+                "opencode_go_usage_display": "both",
+                "opencode_go_usage_periods": ["5h", "week", "month"]
             })
             .to_string(),
         ])
@@ -332,6 +398,9 @@ mod tests {
         assert!(plugin_block.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
         assert!(plugin_block.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
         assert!(!plugin_block.contains("command_workspace_command"));
+        assert!(plugin_block.contains(
+            "/runtime/libexec/yazelix_zellij_bar_widget codex --display quota --periods 5h,week"
+        ));
         assert!(plugin_block.contains("/runtime/libexec/yazelix_zellij_bar_widget cpu"));
     }
 }
