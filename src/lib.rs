@@ -2669,7 +2669,7 @@ mod tests {
             r#"command_codex_usage_command "/runtime/bin/yazelix_zellij_bar_widget codex --display quota --periods 5h,week""#
         ));
         assert!(rendered.contains(
-            r#"command_version_command "/runtime/bin/nu -c 'use /runtime/nushell/scripts/utils/constants.nu YAZELIX_VERSION; $YAZELIX_VERSION'""#
+            r#"command_version_command "/runtime/bin/yazelix_zellij_bar_widget version --runtime-dir /runtime""#
         ));
         assert!(!rendered.contains(RUNTIME_PLACEHOLDER_PREFIX));
     }

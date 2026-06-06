@@ -1,4 +1,5 @@
 use std::env;
+use std::path::Path;
 use std::process;
 use std::process::Command;
 
@@ -15,7 +16,7 @@ fn main() {
 fn run(args: Vec<String>) -> Result<String, String> {
     let Some((command, rest)) = args.split_first() else {
         return Err(
-            "expected command: claude, codex, cursor, cpu, opencode_go, ram, or render-yazelix-runtime"
+            "expected command: claude, codex, cursor, cpu, opencode_go, ram, version, or render-yazelix-runtime"
                 .to_string(),
         );
     };
@@ -25,11 +26,52 @@ fn run(args: Vec<String>) -> Result<String, String> {
         "codex" => run_codex_usage(rest),
         "opencode_go" => run_opencode_go_usage(rest),
         "render-yazelix-runtime" => run_render_yazelix_runtime(rest),
+        "version" => run_version(rest),
         "cpu" if rest.is_empty() => Ok(yazelix_zellij_bar::current_cpu_usage_widget_text()),
         "ram" if rest.is_empty() => Ok(yazelix_zellij_bar::current_ram_usage_widget_text()),
         "cpu" | "ram" => Err(format!("{command} accepts no arguments")),
         _ => Err(format!("unknown widget command: {command}")),
     }
+}
+
+fn run_version(args: &[String]) -> Result<String, String> {
+    let [flag, runtime_dir] = args else {
+        return Err(
+            "version usage: yazelix_zellij_bar_widget version --runtime-dir <runtime-dir>"
+                .to_string(),
+        );
+    };
+    if flag != "--runtime-dir" {
+        return Err("version expects --runtime-dir <runtime-dir>".to_string());
+    }
+    runtime_version(Path::new(runtime_dir))
+}
+
+fn runtime_version(runtime_dir: &Path) -> Result<String, String> {
+    let identity_path = runtime_dir.join("runtime_identity.json");
+    let raw = std::fs::read_to_string(&identity_path).map_err(|error| {
+        format!(
+            "failed to read Yazelix runtime identity at {}: {error}",
+            identity_path.display()
+        )
+    })?;
+    let identity: serde_json::Value = serde_json::from_str(&raw).map_err(|error| {
+        format!(
+            "failed to parse Yazelix runtime identity at {}: {error}",
+            identity_path.display()
+        )
+    })?;
+    identity
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .filter(|version| !version.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            format!(
+                "Yazelix runtime identity at {} is missing string field `version`",
+                identity_path.display()
+            )
+        })
 }
 
 fn run_render_yazelix_runtime(args: &[String]) -> Result<String, String> {
@@ -402,5 +444,57 @@ mod tests {
             "/runtime/libexec/yazelix_zellij_bar_widget codex --display quota --periods 5h,week"
         ));
         assert!(plugin_block.contains("/runtime/libexec/yazelix_zellij_bar_widget cpu"));
+    }
+
+    // Defends: integrated Yazelix version display reads the packaged runtime identity, not removed Nushell constants.
+    #[test]
+    fn version_command_reads_runtime_identity_version() {
+        let runtime_dir = unique_test_dir("yazelix-zellij-bar-version-ok");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        std::fs::write(
+            runtime_dir.join("runtime_identity.json"),
+            r#"{"schema_version":1,"version":"v-test"}"#,
+        )
+        .unwrap();
+
+        let output = run(vec![
+            "version".into(),
+            "--runtime-dir".into(),
+            runtime_dir.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+
+        assert_eq!(output, "v-test");
+        let _ = std::fs::remove_dir_all(runtime_dir);
+    }
+
+    // Regression: a broken runtime identity must be visible instead of making the zjstatus command render an empty version.
+    #[test]
+    fn version_command_rejects_missing_runtime_identity_version() {
+        let runtime_dir = unique_test_dir("yazelix-zellij-bar-version-missing");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        std::fs::write(
+            runtime_dir.join("runtime_identity.json"),
+            r#"{"schema_version":1}"#,
+        )
+        .unwrap();
+
+        let error = run(vec![
+            "version".into(),
+            "--runtime-dir".into(),
+            runtime_dir.to_string_lossy().into_owned(),
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("missing string field `version`"));
+        let _ = std::fs::remove_dir_all(runtime_dir);
+    }
+
+    fn unique_test_dir(stem: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("{stem}-{}-{nanos}", std::process::id()))
     }
 }
