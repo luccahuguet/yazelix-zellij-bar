@@ -2787,7 +2787,7 @@ mod tests {
         assert!(YAZELIX_RUNTIME_BAR_TEMPLATE.contains("pipe_workspace_format"));
         assert!(rendered.contains(r#"plugin location="file:/runtime/share/zjstatus.wasm" {"#));
         assert!(rendered.contains(
-            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][🖹 hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]yzx {command_version} \" // {datetime}"
+            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][🖹 hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
         ));
         assert!(rendered.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
         assert!(rendered.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
@@ -2813,7 +2813,7 @@ mod tests {
         let rendered = render_yazelix_runtime_plugin_block(&config).unwrap();
 
         assert!(rendered.contains(
-            "format_right  \"#[fg=#7c3f97,bold]{session} #[fg=#2f7d32,bold][🖹 hx]{pipe_workspace}{command_cpu} #[fg=#9a5a00,bold][demo] #[fg=#1e66f5,bold]yzx {command_version} \" // {datetime}"
+            "format_right  \"#[fg=#7c3f97,bold]{session} #[fg=#2f7d32,bold][🖹 hx]{pipe_workspace}{command_cpu} #[fg=#9a5a00,bold][demo] #[fg=#1e66f5,bold]YZX {command_version} \" // {datetime}"
         ));
         assert!(rendered.contains(r##"mode_normal  "#[bg=#cfe8d4,fg=#1f5f32,bold] NORMAL ""##));
         assert!(rendered.contains(

@@ -65,13 +65,22 @@ fn runtime_version(runtime_dir: &Path) -> Result<String, String> {
         .get("version")
         .and_then(serde_json::Value::as_str)
         .filter(|version| !version.trim().is_empty())
-        .map(str::to_string)
+        .map(runtime_version_for_status_bar)
         .ok_or_else(|| {
             format!(
                 "Yazelix runtime identity at {} is missing string field `version`",
                 identity_path.display()
             )
         })
+}
+
+fn runtime_version_for_status_bar(version: &str) -> String {
+    version
+        .strip_prefix('v')
+        .or_else(|| version.strip_prefix('V'))
+        .filter(|suffix| suffix.chars().next().is_some_and(|ch| ch.is_ascii_digit()))
+        .unwrap_or(version)
+        .to_string()
 }
 
 fn run_render_yazelix_runtime(args: &[String]) -> Result<String, String> {
@@ -469,7 +478,7 @@ mod tests {
             )
         );
         assert!(plugin_block.contains(
-            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][🖹 hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]yzx {command_version} \" // {datetime}"
+            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][🖹 hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
         ));
         assert!(plugin_block.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
         assert!(plugin_block.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
@@ -499,6 +508,28 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, "v-test");
+        let _ = std::fs::remove_dir_all(runtime_dir);
+    }
+
+    // Defends: the status bar keeps the release tag compact while preserving non-release version strings.
+    #[test]
+    fn version_command_strips_release_v_prefix_for_status_bar() {
+        let runtime_dir = unique_test_dir("yazelix-zellij-bar-version-release");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        std::fs::write(
+            runtime_dir.join("runtime_identity.json"),
+            r#"{"schema_version":1,"version":"v17.5"}"#,
+        )
+        .unwrap();
+
+        let output = run(vec![
+            "version".into(),
+            "--runtime-dir".into(),
+            runtime_dir.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+
+        assert_eq!(output, "17.5");
         let _ = std::fs::remove_dir_all(runtime_dir);
     }
 

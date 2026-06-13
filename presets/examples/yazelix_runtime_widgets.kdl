@@ -1,7 +1,7 @@
 // These snippets require the full Yazelix runtime and its cached status helpers.
 // Workspace and version are Yazelix-only. Other widgets are bar-owned commands.
 
-format_right "#[fg=#ff0088,bold]{session}{pipe_workspace}{command_cursor}{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]yzx {command_version} "
+format_right "#[fg=#ff0088,bold]{session}{pipe_workspace}{command_cursor}{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]YZX {command_version} "
 
 pipe_workspace_format "#[fg=#00ff88,bold]{output}"
 
