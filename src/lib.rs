@@ -1,3 +1,10 @@
+mod appearance;
+
+pub use appearance::{
+    APPEARANCE_MODE_AUTO, APPEARANCE_MODE_DARK, APPEARANCE_MODE_LIGHT, default_appearance_mode,
+    normalize_appearance_arg,
+};
+use appearance::{BarStyle, DARK_BAR_STYLE, bar_style_for_appearance, runtime_bar_appearance};
 use serde::{Deserialize, Serialize};
 
 pub const WIDGET_EDITOR: &str = "editor";
@@ -47,13 +54,14 @@ pub struct BarRenderData {
     pub custom_text_segment: String,
 }
 
-pub const YAZELIX_RUNTIME_BAR_RENDER_SCHEMA_VERSION: u64 = 2;
+pub const YAZELIX_RUNTIME_BAR_RENDER_SCHEMA_VERSION: u64 = 3;
 const YAZELIX_RUNTIME_BAR_TEMPLATE: &str =
     include_str!("../presets/yazelix_runtime_bar.template.kdl");
 const RUNTIME_PLACEHOLDER_PREFIX: &str = "__YAZELIX_RUNTIME_";
 const RUNTIME_ZJSTATUS_PLUGIN_URL_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_ZJSTATUS_PLUGIN_URL__";
 const RUNTIME_WIDGET_TRAY_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_WIDGET_TRAY__";
 const RUNTIME_CUSTOM_TEXT_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CUSTOM_TEXT__";
+const RUNTIME_APPEARANCE_MODE_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_APPEARANCE_MODE__";
 const RUNTIME_TAB_LABELS_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_TAB_LABELS__";
 const RUNTIME_TAB_RENAME_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_TAB_RENAME__";
 const RUNTIME_FLOATING_INDICATOR_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_FLOATING_INDICATOR__";
@@ -78,6 +86,8 @@ pub struct YazelixRuntimeBarConfig {
     pub shell_label: String,
     pub terminal_label: String,
     pub custom_text: String,
+    #[serde(default = "default_appearance_mode")]
+    pub appearance_mode: String,
     pub tab_label_mode: String,
     pub nu_bin: String,
     pub yzx_control_bin: String,
@@ -749,23 +759,35 @@ fn escape_kdl_string(value: &str) -> String {
 pub fn render_zjstatus_bar_segments(
     request: &BarRenderRequest,
 ) -> Result<BarRenderData, BarRenderError> {
+    render_zjstatus_bar_segments_with_style(request, &DARK_BAR_STYLE)
+}
+
+fn render_zjstatus_bar_segments_with_style(
+    request: &BarRenderRequest,
+    style: &BarStyle,
+) -> Result<BarRenderData, BarRenderError> {
     Ok(BarRenderData {
-        widget_tray_segment: render_widget_tray_segment(request)?,
-        custom_text_segment: render_custom_text_segment(&request.custom_text),
+        widget_tray_segment: render_widget_tray_segment_with_style(request, style)?,
+        custom_text_segment: render_custom_text_segment_with_style(&request.custom_text, style),
     })
 }
 
 pub fn render_yazelix_runtime_plugin_block(
     config: &YazelixRuntimeBarConfig,
 ) -> Result<String, BarRenderError> {
-    let bar_segments = render_zjstatus_bar_segments(&BarRenderRequest {
-        widget_tray: config.widget_tray.clone(),
-        editor_label: config.editor_label.clone(),
-        shell_label: config.shell_label.clone(),
-        terminal_label: config.terminal_label.clone(),
-        custom_text: config.custom_text.clone(),
-    })?;
-    let tab_labels = render_zjstatus_tab_label_formats(&config.tab_label_mode)?;
+    let style = bar_style_for_appearance(&config.appearance_mode);
+    let appearance_mode = runtime_bar_appearance(&config.appearance_mode);
+    let bar_segments = render_zjstatus_bar_segments_with_style(
+        &BarRenderRequest {
+            widget_tray: config.widget_tray.clone(),
+            editor_label: config.editor_label.clone(),
+            shell_label: config.shell_label.clone(),
+            terminal_label: config.terminal_label.clone(),
+            custom_text: config.custom_text.clone(),
+        },
+        style,
+    )?;
+    let tab_labels = render_zjstatus_tab_label_formats_with_style(&config.tab_label_mode, style)?;
     let replacements = [
         (
             RUNTIME_ZJSTATUS_PLUGIN_URL_PLACEHOLDER,
@@ -778,6 +800,10 @@ pub fn render_yazelix_runtime_plugin_block(
         (
             RUNTIME_CUSTOM_TEXT_PLACEHOLDER,
             bar_segments.custom_text_segment,
+        ),
+        (
+            RUNTIME_APPEARANCE_MODE_PLACEHOLDER,
+            escape_kdl_string(appearance_mode),
         ),
         (
             RUNTIME_TAB_LABELS_PLACEHOLDER,
@@ -836,6 +862,9 @@ pub fn render_yazelix_runtime_plugin_block(
     for (placeholder, value) in replacements {
         rendered = rendered.replace(placeholder, &value);
     }
+    for (placeholder, value) in style.template_replacements() {
+        rendered = rendered.replace(placeholder, value);
+    }
     if let Some(placeholder) = unresolved_runtime_preset_placeholder(&rendered) {
         return Err(BarRenderError::UnresolvedRuntimePresetPlaceholder { placeholder });
     }
@@ -865,10 +894,17 @@ fn unresolved_runtime_preset_placeholder(rendered: &str) -> Option<String> {
 }
 
 pub fn render_widget_tray_segment(request: &BarRenderRequest) -> Result<String, BarRenderError> {
+    render_widget_tray_segment_with_style(request, &DARK_BAR_STYLE)
+}
+
+fn render_widget_tray_segment_with_style(
+    request: &BarRenderRequest,
+    style: &BarStyle,
+) -> Result<String, BarRenderError> {
     request
         .widget_tray
         .iter()
-        .map(|widget| render_widget(widget, request))
+        .map(|widget| render_widget_with_style(widget, request, style))
         .collect::<Result<Vec<_>, _>>()
         .map(|parts| {
             parts
@@ -880,15 +916,27 @@ pub fn render_widget_tray_segment(request: &BarRenderRequest) -> Result<String, 
 }
 
 pub fn render_custom_text_segment(custom_text: &str) -> String {
+    render_custom_text_segment_with_style(custom_text, &DARK_BAR_STYLE)
+}
+
+fn render_custom_text_segment_with_style(custom_text: &str, style: &BarStyle) -> String {
     let trimmed = custom_text.trim();
     if trimmed.is_empty() {
         String::new()
     } else {
-        format!("#[fg=#ffff00,bold][{trimmed}] ")
+        format!("{}[{trimmed}] ", style.custom_text)
     }
 }
 
 pub fn render_cursor_status_widget(facts: &CursorWidgetFacts) -> String {
+    render_cursor_status_widget_with_appearance(facts, APPEARANCE_MODE_DARK)
+}
+
+pub fn render_cursor_status_widget_with_appearance(
+    facts: &CursorWidgetFacts,
+    appearance_mode: &str,
+) -> String {
+    let style = bar_style_for_appearance(appearance_mode);
     let name = sanitize_cursor_name(&facts.name);
     if name.is_empty() {
         return String::new();
@@ -898,19 +946,32 @@ pub fn render_cursor_status_widget(facts: &CursorWidgetFacts) -> String {
         .color
         .as_deref()
         .and_then(normalize_hex_color)
-        .unwrap_or_else(|| "#00ff88".to_string());
+        .unwrap_or_else(|| style.cursor_default.to_string());
+    let frame_color = if style.light {
+        style.cursor_frame.to_string()
+    } else {
+        color.clone()
+    };
 
     if let Some((glyph, primary_color, secondary_color)) = cursor_split_preview(facts, &color) {
         let glyph_segment = format!("#[fg={primary_color},bg={secondary_color},bold]{glyph}");
-        return render_cursor_status_widget_frame(&color, &glyph_segment, &name);
+        return render_cursor_status_widget_frame(&frame_color, &glyph_segment, &name);
     }
 
-    let glyph_segment = format!("#[fg={color},bold]█");
-    render_cursor_status_widget_frame(&color, &glyph_segment, &name)
+    let glyph_color = cursor_glyph_color(&color, style);
+    let glyph_segment = format!("#[fg={glyph_color},bold]█");
+    render_cursor_status_widget_frame(&frame_color, &glyph_segment, &name)
 }
 
 pub fn cursor_widget_text_from_env() -> String {
     render_cursor_status_widget(&cursor_widget_facts_from_pairs(std::env::vars()))
+}
+
+pub fn cursor_widget_text_from_env_with_appearance(appearance_mode: &str) -> String {
+    render_cursor_status_widget_with_appearance(
+        &cursor_widget_facts_from_pairs(std::env::vars()),
+        appearance_mode,
+    )
 }
 
 pub fn cursor_widget_text_from_fact_file(
@@ -920,8 +981,29 @@ pub fn cursor_widget_text_from_fact_file(
     Ok(cursor_widget_text_from_fact_text(&raw))
 }
 
+pub fn cursor_widget_text_from_fact_file_with_appearance(
+    path: impl AsRef<std::path::Path>,
+    appearance_mode: &str,
+) -> std::io::Result<String> {
+    let raw = std::fs::read_to_string(path)?;
+    Ok(cursor_widget_text_from_fact_text_with_appearance(
+        &raw,
+        appearance_mode,
+    ))
+}
+
 pub fn cursor_widget_text_from_fact_text(raw: &str) -> String {
     render_cursor_status_widget(&cursor_widget_facts_from_pairs(cursor_fact_file_pairs(raw)))
+}
+
+pub fn cursor_widget_text_from_fact_text_with_appearance(
+    raw: &str,
+    appearance_mode: &str,
+) -> String {
+    render_cursor_status_widget_with_appearance(
+        &cursor_widget_facts_from_pairs(cursor_fact_file_pairs(raw)),
+        appearance_mode,
+    )
 }
 
 pub fn cursor_widget_facts_from_pairs(
@@ -2421,6 +2503,30 @@ fn normalize_hex_color(raw: &str) -> Option<String> {
     valid.then_some(normalized)
 }
 
+fn cursor_glyph_color(color: &str, style: &BarStyle) -> String {
+    if style.light && is_pale_hex_color(color) {
+        style.cursor_default.to_string()
+    } else {
+        color.to_string()
+    }
+}
+
+fn is_pale_hex_color(color: &str) -> bool {
+    let Some((red, green, blue)) = parse_hex_rgb(color) else {
+        return false;
+    };
+    let luminance = (0.2126 * red as f64 + 0.7152 * green as f64 + 0.0722 * blue as f64) / 255.0;
+    luminance > 0.62
+}
+
+fn parse_hex_rgb(color: &str) -> Option<(u8, u8, u8)> {
+    let normalized = normalize_hex_color(color)?;
+    let red = u8::from_str_radix(&normalized[1..3], 16).ok()?;
+    let green = u8::from_str_radix(&normalized[3..5], 16).ok()?;
+    let blue = u8::from_str_radix(&normalized[5..7], 16).ok()?;
+    Some((red, green, blue))
+}
+
 fn sanitize_cursor_name(name: &str) -> String {
     name.chars()
         .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '/' | '.'))
@@ -2428,6 +2534,17 @@ fn sanitize_cursor_name(name: &str) -> String {
 }
 
 pub fn render_zjstatus_tab_label_formats(mode: &str) -> Result<TabLabelFormats, BarRenderError> {
+    render_zjstatus_tab_label_formats_with_style(mode, &DARK_BAR_STYLE)
+}
+
+fn render_zjstatus_tab_label_formats_with_style(
+    mode: &str,
+    style: &BarStyle,
+) -> Result<TabLabelFormats, BarRenderError> {
+    if style.light {
+        return render_light_zjstatus_tab_label_formats(mode);
+    }
+
     match mode {
         TAB_LABEL_MODE_FULL => Ok(TabLabelFormats {
             tab_normal: r##"tab_normal   "#[fg=#ffff00] [{index}] {name} ""##,
@@ -2453,19 +2570,46 @@ pub fn render_zjstatus_tab_label_formats(mode: &str) -> Result<TabLabelFormats, 
     }
 }
 
-fn render_widget(widget: &str, request: &BarRenderRequest) -> Result<String, BarRenderError> {
+fn render_light_zjstatus_tab_label_formats(mode: &str) -> Result<TabLabelFormats, BarRenderError> {
+    match mode {
+        TAB_LABEL_MODE_FULL => Ok(TabLabelFormats {
+            tab_normal: r##"tab_normal   "#[fg=#5c5f77] [{index}] {name} ""##,
+            tab_normal_fullscreen: r##"tab_normal_fullscreen "#[fg=#5c5f77] [{index}] {name} [] ""##,
+            tab_normal_sync: r##"tab_normal_sync       "#[fg=#5c5f77] [{index}] {name} <> ""##,
+            tab_active: r##"tab_active   "#[bg=#ccd0da,fg=#303446,bold] [{index}] {name} {floating_indicator}""##,
+            tab_active_fullscreen: r##"tab_active_fullscreen "#[bg=#ccd0da,fg=#303446,bold] [{index}] {name} {fullscreen_indicator}""##,
+            tab_active_sync: r##"tab_active_sync       "#[bg=#ccd0da,fg=#303446,bold] [{index}] {name} {sync_indicator}""##,
+            tab_rename: r##"tab_rename    "#[bg=#ccd0da,fg=#303446,bold] {index} {name} {floating_indicator} ""##,
+        }),
+        TAB_LABEL_MODE_COMPACT => Ok(TabLabelFormats {
+            tab_normal: r##"tab_normal   "#[fg=#5c5f77] [{index}] ""##,
+            tab_normal_fullscreen: r##"tab_normal_fullscreen "#[fg=#5c5f77] [{index}] [] ""##,
+            tab_normal_sync: r##"tab_normal_sync       "#[fg=#5c5f77] [{index}] <> ""##,
+            tab_active: r##"tab_active   "#[bg=#ccd0da,fg=#303446,bold] [{index}] {floating_indicator}""##,
+            tab_active_fullscreen: r##"tab_active_fullscreen "#[bg=#ccd0da,fg=#303446,bold] [{index}] {fullscreen_indicator}""##,
+            tab_active_sync: r##"tab_active_sync       "#[bg=#ccd0da,fg=#303446,bold] [{index}] {sync_indicator}""##,
+            tab_rename: r##"tab_rename    "#[bg=#ccd0da,fg=#303446,bold] {index} {name} {floating_indicator} ""##,
+        }),
+        _ => Err(BarRenderError::InvalidTabLabelMode {
+            mode: mode.to_string(),
+        }),
+    }
+}
+
+fn render_widget_with_style(
+    widget: &str,
+    request: &BarRenderRequest,
+    style: &BarStyle,
+) -> Result<String, BarRenderError> {
     match widget {
         WIDGET_EDITOR => Ok(format!(
-            " #[fg=#00ff88,bold][editor: {}]",
-            request.editor_label
+            " {}[editor: {}]",
+            style.widget, request.editor_label
         )),
-        WIDGET_SHELL => Ok(format!(
-            " #[fg=#00ff88,bold][shell: {}]",
-            request.shell_label
-        )),
+        WIDGET_SHELL => Ok(format!(" {}[shell: {}]", style.widget, request.shell_label)),
         WIDGET_TERM => Ok(format!(
-            " #[fg=#00ff88,bold][term: {}]",
-            request.terminal_label
+            " {}[term: {}]",
+            style.widget, request.terminal_label
         )),
         WIDGET_WORKSPACE => Ok(PIPE_WORKSPACE.to_string()),
         WIDGET_CURSOR => Ok(COMMAND_CURSOR.to_string()),
@@ -2633,6 +2777,7 @@ mod tests {
             shell_label: "nu".to_string(),
             terminal_label: "ghostty".to_string(),
             custom_text: "demo".to_string(),
+            appearance_mode: "dark".to_string(),
             tab_label_mode: "compact".to_string(),
             nu_bin: "/runtime/bin/nu".to_string(),
             yzx_control_bin: "/runtime/bin/yzx_control".to_string(),
@@ -2666,12 +2811,39 @@ mod tests {
         assert!(rendered.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
         assert!(!rendered.contains("command_workspace_command"));
         assert!(rendered.contains(
+            r#"command_cursor_command "/runtime/bin/yazelix_zellij_bar_widget cursor --appearance dark""#
+        ));
+        assert!(rendered.contains(
             r#"command_codex_usage_command "/runtime/bin/yazelix_zellij_bar_widget codex --display quota --periods 5h,week""#
         ));
         assert!(rendered.contains(
             r#"command_version_command "/runtime/bin/yazelix_zellij_bar_widget version --runtime-dir /runtime""#
         ));
         assert!(!rendered.contains(RUNTIME_PLACEHOLDER_PREFIX));
+    }
+
+    // Defends: light appearance uses a purpose-built status-bar palette rather than dark-mode neon on a pale terminal.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn renders_yazelix_runtime_plugin_block_with_light_palette() {
+        let mut config = runtime_bar_config();
+        config.appearance_mode = "light".to_string();
+        let rendered = render_yazelix_runtime_plugin_block(&config).unwrap();
+
+        assert!(rendered.contains(
+            "format_right  \"#[fg=#7c3f97,bold]{session} #[fg=#2f7d32,bold][editor: hx]{pipe_workspace}{command_cpu} #[fg=#9a5a00,bold][demo] #[fg=#1e66f5,bold]YAZELIX {command_version} \" // {datetime}"
+        ));
+        assert!(rendered.contains(r##"mode_normal  "#[bg=#cfe8d4,fg=#1f5f32,bold] NORMAL ""##));
+        assert!(rendered.contains(
+            r##"tab_active   "#[bg=#ccd0da,fg=#303446,bold] [{index}] {floating_indicator}""##
+        ));
+        assert!(rendered.contains(r##"pipe_workspace_format "#[fg=#2f7d32,bold]{output}""##));
+        assert!(rendered.contains(r##"command_codex_usage_format "#[fg=#7850a8,bold]{stdout}""##));
+        assert!(rendered.contains(r##"command_cpu_format " #[fg=#a24f00][cpu {stdout}]""##));
+        assert!(rendered.contains(
+            r#"command_cursor_command "/runtime/bin/yazelix_zellij_bar_widget cursor --appearance light""#
+        ));
+        assert!(!rendered.contains("#00ff88"));
     }
 
     // Defends: vanilla users keep a simple standalone preset and do not inherit integrated Yazelix runtime placeholders.
@@ -2847,6 +3019,24 @@ MemAvailable:   250000 kB
                 secondary_color: Some("hot".into()),
             }),
             " #[fg=#ff1600,bg=default,bold][#[fg=#ff1600,bold]█#[fg=#ff1600,bg=default,bold] magma]"
+        );
+    }
+
+    // Regression: pale cursor colors must not make the light-mode status segment unreadable.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn light_cursor_status_widget_uses_safe_frame_color() {
+        assert_eq!(
+            render_cursor_status_widget_with_appearance(
+                &CursorWidgetFacts {
+                    name: "whiteout".into(),
+                    color: Some("#ffffff".into()),
+                    family: Some("mono".into()),
+                    ..CursorWidgetFacts::default()
+                },
+                "light",
+            ),
+            " #[fg=#2f7d32,bg=default,bold][#[fg=#5c5f77,bold]█#[fg=#2f7d32,bg=default,bold] whiteout]"
         );
     }
 

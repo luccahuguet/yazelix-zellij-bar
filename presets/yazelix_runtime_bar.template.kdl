@@ -1,17 +1,17 @@
 plugin location="__YAZELIX_RUNTIME_ZJSTATUS_PLUGIN_URL__" {
     format_left   "{mode} {tabs}"
     format_center ""
-    format_right  "#[fg=#ff0088,bold]{session}__YAZELIX_RUNTIME_WIDGET_TRAY__ __YAZELIX_RUNTIME_CUSTOM_TEXT__#[fg=#00ccff,bold]YAZELIX {command_version} " // {datetime}
+    format_right  "__YAZELIX_RUNTIME_STYLE_SESSION__{session}__YAZELIX_RUNTIME_WIDGET_TRAY__ __YAZELIX_RUNTIME_CUSTOM_TEXT____YAZELIX_RUNTIME_STYLE_BRAND__YAZELIX {command_version} " // {datetime}
     format_hide_on_overlength "true"
     format_precedence "lrc"
     format_space  ""
 
     border_enabled  "false"
 
-    mode_normal  "#[bg=#00ff88,fg=#000000,bold] NORMAL "
-    mode_tmux    "#[bg=#ffff00,fg=#000000,bold] TMUX "
-    mode_session "#[bg=#ff6600,fg=#000000,bold] SESSION "
-    mode_scroll  "#[bg=#ff0088,fg=#ffffff,bold] SCROLL "
+    mode_normal  "__YAZELIX_RUNTIME_MODE_NORMAL__ NORMAL "
+    mode_tmux    "__YAZELIX_RUNTIME_MODE_TMUX__ TMUX "
+    mode_session "__YAZELIX_RUNTIME_MODE_SESSION__ SESSION "
+    mode_scroll  "__YAZELIX_RUNTIME_MODE_SCROLL__ SCROLL "
 
 __YAZELIX_RUNTIME_TAB_LABELS__
     tab_separator ""
@@ -20,37 +20,37 @@ __YAZELIX_RUNTIME_TAB_RENAME__
     tab_fullscreen_indicator "[] "
     tab_floating_indicator   "__YAZELIX_RUNTIME_FLOATING_INDICATOR__"
     tab_display_count "6"
-    tab_truncate_start_format "#[fg=#ff6600,bold]< +{count} ... "
-    tab_truncate_end_format   "#[fg=#ff6600,bold]... +{count} > "
+    tab_truncate_start_format "__YAZELIX_RUNTIME_STYLE_TAB_TRUNCATE__< +{count} ... "
+    tab_truncate_end_format   "__YAZELIX_RUNTIME_STYLE_TAB_TRUNCATE__... +{count} > "
 
-    datetime        "#[fg=#bb88ff,bold] {format} "
+    datetime        "__YAZELIX_RUNTIME_STYLE_DATETIME__ {format} "
     datetime_format "%H:%M %d/%m"
 
-    pipe_workspace_format "#[fg=#00ff88,bold]{output}"
+    pipe_workspace_format "__YAZELIX_RUNTIME_STYLE_WORKSPACE__{output}"
 
-    command_cursor_command "__YAZELIX_RUNTIME_WIDGET_BIN__ cursor"
+    command_cursor_command "__YAZELIX_RUNTIME_WIDGET_BIN__ cursor --appearance __YAZELIX_RUNTIME_APPEARANCE_MODE__"
     command_cursor_format "{stdout}"
     command_cursor_rendermode "dynamic"
     command_cursor_interval "10"
 
     command_claude_usage_command "__YAZELIX_RUNTIME_WIDGET_BIN__ claude --display __YAZELIX_RUNTIME_CLAUDE_USAGE_DISPLAY__ --periods __YAZELIX_RUNTIME_CLAUDE_USAGE_PERIODS__"
-    command_claude_usage_format "#[fg=#bb88ff,bold]{stdout}"
+    command_claude_usage_format "__YAZELIX_RUNTIME_STYLE_USAGE__{stdout}"
     command_claude_usage_interval "10"
 
     command_codex_usage_command "__YAZELIX_RUNTIME_WIDGET_BIN__ codex --display __YAZELIX_RUNTIME_CODEX_USAGE_DISPLAY__ --periods __YAZELIX_RUNTIME_CODEX_USAGE_PERIODS__"
-    command_codex_usage_format "#[fg=#bb88ff,bold]{stdout}"
+    command_codex_usage_format "__YAZELIX_RUNTIME_STYLE_USAGE__{stdout}"
     command_codex_usage_interval "10"
 
     command_opencode_go_usage_command "__YAZELIX_RUNTIME_WIDGET_BIN__ opencode_go --display __YAZELIX_RUNTIME_OPENCODE_GO_USAGE_DISPLAY__ --periods __YAZELIX_RUNTIME_OPENCODE_GO_USAGE_PERIODS__"
-    command_opencode_go_usage_format "#[fg=#bb88ff,bold]{stdout}"
+    command_opencode_go_usage_format "__YAZELIX_RUNTIME_STYLE_USAGE__{stdout}"
     command_opencode_go_usage_interval "10"
 
     command_cpu_command "__YAZELIX_RUNTIME_WIDGET_BIN__ cpu"
-    command_cpu_format " #[fg=#ff6600][cpu {stdout}]"
+    command_cpu_format " __YAZELIX_RUNTIME_STYLE_SYSTEM_USAGE__[cpu {stdout}]"
     command_cpu_interval "5"
 
     command_ram_command "__YAZELIX_RUNTIME_WIDGET_BIN__ ram"
-    command_ram_format " #[fg=#ff6600][ram {stdout}]"
+    command_ram_format " __YAZELIX_RUNTIME_STYLE_SYSTEM_USAGE__[ram {stdout}]"
     command_ram_interval "5"
 
     command_version_command "__YAZELIX_RUNTIME_WIDGET_BIN__ version --runtime-dir __YAZELIX_RUNTIME_DIR__"
