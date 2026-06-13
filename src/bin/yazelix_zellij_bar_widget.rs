@@ -1,7 +1,6 @@
 use std::env;
 use std::path::Path;
 use std::process;
-use std::process::Command;
 
 fn main() {
     match run(env::args().skip(1).collect()) {
@@ -16,12 +15,11 @@ fn main() {
 fn run(args: Vec<String>) -> Result<String, String> {
     let Some((command, rest)) = args.split_first() else {
         return Err(
-            "expected command: claude, codex, cursor, cpu, opencode_go, ram, version, or render-yazelix-runtime"
+            "expected command: claude, codex, cpu, opencode_go, ram, version, or render-yazelix-runtime"
                 .to_string(),
         );
     };
     match command.as_str() {
-        "cursor" => run_cursor(rest),
         "claude" => run_claude_usage(rest),
         "codex" => run_codex_usage(rest),
         "opencode_go" => run_opencode_go_usage(rest),
@@ -104,54 +102,6 @@ fn run_render_yazelix_runtime(args: &[String]) -> Result<String, String> {
         plugin_block,
     })
     .map_err(|error| format!("failed to encode Yazelix runtime bar render: {error}"))
-}
-
-fn run_cursor(args: &[String]) -> Result<String, String> {
-    let (appearance_mode, cursor_args) = parse_optional_appearance_arg(args)?;
-    match cursor_args.as_slice() {
-        [] => {
-            let rendered =
-                yazelix_zellij_bar::cursor_widget_text_from_env_with_appearance(&appearance_mode);
-            if !rendered.is_empty() {
-                return Ok(rendered);
-            }
-            Ok(cursor_widget_text_from_yzc(&appearance_mode))
-        }
-        [flag, path] if flag == "--facts" => {
-            yazelix_zellij_bar::cursor_widget_text_from_fact_file_with_appearance(
-                path,
-                &appearance_mode,
-            )
-                .map_err(|error| format!("failed to read cursor fact file {path}: {error}"))
-        }
-        _ => Err(
-            "cursor usage: yazelix_zellij_bar_widget cursor [--appearance dark|light|auto] [--facts <path>]"
-                .to_string(),
-        ),
-    }
-}
-
-fn parse_optional_appearance_arg(args: &[String]) -> Result<(String, Vec<String>), String> {
-    let mut appearance_mode = yazelix_zellij_bar::APPEARANCE_MODE_DARK.to_string();
-    let mut rest = Vec::new();
-    let mut index = 0;
-    while index < args.len() {
-        if args[index] == "--appearance" {
-            let Some(raw_mode) = args.get(index + 1) else {
-                return Err("cursor --appearance expects dark, light, or auto".to_string());
-            };
-            appearance_mode = yazelix_zellij_bar::normalize_appearance_arg(raw_mode)
-                .map(str::to_string)
-                .ok_or_else(|| {
-                    format!("invalid cursor appearance `{raw_mode}`; expected dark, light, or auto")
-                })?;
-            index += 2;
-        } else {
-            rest.push(args[index].clone());
-            index += 1;
-        }
-    }
-    Ok((appearance_mode, rest))
 }
 
 fn run_claude_usage(args: &[String]) -> Result<String, String> {
@@ -406,22 +356,6 @@ fn unix_time_seconds() -> u64 {
 fn default_cache_path(file_name: &str) -> Option<std::path::PathBuf> {
     xdg_base_path("XDG_CACHE_HOME", ".cache")
         .map(|base| base.join("yazelix_zellij_bar").join(file_name))
-}
-
-fn cursor_widget_text_from_yzc(appearance_mode: &str) -> String {
-    let Ok(output) = Command::new("yzc")
-        .args(["current", "--format", "env"])
-        .output()
-    else {
-        return String::new();
-    };
-    if !output.status.success() {
-        return String::new();
-    }
-    yazelix_zellij_bar::cursor_widget_text_from_fact_text_with_appearance(
-        &String::from_utf8_lossy(&output.stdout),
-        appearance_mode,
-    )
 }
 
 fn xdg_base_path(env_name: &str, home_fallback: &str) -> Option<std::path::PathBuf> {

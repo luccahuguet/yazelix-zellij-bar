@@ -63,9 +63,6 @@ pub(crate) struct BarStyle {
     pub(crate) workspace: &'static str,
     pub(crate) usage: &'static str,
     pub(crate) system_usage: &'static str,
-    pub(crate) cursor_default: &'static str,
-    pub(crate) cursor_frame: &'static str,
-    pub(crate) light: bool,
 }
 
 impl BarStyle {
@@ -102,9 +99,6 @@ pub(crate) const DARK_BAR_STYLE: BarStyle = BarStyle {
     workspace: "#[fg=#00ff88,bold]",
     usage: "#[fg=#bb88ff,bold]",
     system_usage: "#[fg=#ff6600]",
-    cursor_default: "#00ff88",
-    cursor_frame: "#00ff88",
-    light: false,
 };
 
 const LIGHT_BAR_STYLE: BarStyle = BarStyle {
@@ -123,7 +117,4 @@ const LIGHT_BAR_STYLE: BarStyle = BarStyle {
     workspace: "#[fg=#2f7d32,bold]",
     usage: "#[fg=#7850a8,bold]",
     system_usage: "#[fg=#a24f00]",
-    cursor_default: "#5c5f77",
-    cursor_frame: "#2f7d32",
-    light: true,
 };

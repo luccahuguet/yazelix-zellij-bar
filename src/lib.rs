@@ -11,7 +11,6 @@ pub const WIDGET_EDITOR: &str = "editor";
 pub const WIDGET_SHELL: &str = "shell";
 pub const WIDGET_TERM: &str = "term";
 pub const WIDGET_WORKSPACE: &str = "workspace";
-pub const WIDGET_CURSOR: &str = "cursor";
 pub const WIDGET_CLAUDE_USAGE: &str = "claude_usage";
 pub const WIDGET_CODEX_USAGE: &str = "codex_usage";
 pub const WIDGET_OPENCODE_GO_USAGE: &str = "opencode_go_usage";
@@ -19,7 +18,6 @@ pub const WIDGET_CPU: &str = "cpu";
 pub const WIDGET_RAM: &str = "ram";
 
 pub const PIPE_WORKSPACE: &str = "{pipe_workspace}";
-pub const COMMAND_CURSOR: &str = "{command_cursor}";
 pub const COMMAND_CLAUDE_USAGE: &str = "{command_claude_usage}";
 pub const COMMAND_CODEX_USAGE: &str = "{command_codex_usage}";
 pub const COMMAND_OPENCODE_GO_USAGE: &str = "{command_opencode_go_usage}";
@@ -33,7 +31,6 @@ pub const DEFAULT_WIDGET_TRAY: &[&str] = &[
     WIDGET_EDITOR,
     WIDGET_SHELL,
     WIDGET_TERM,
-    WIDGET_CURSOR,
     WIDGET_CODEX_USAGE,
     WIDGET_CPU,
     WIDGET_RAM,
@@ -139,23 +136,6 @@ impl BarRenderError {
         }
     }
 }
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CursorWidgetFacts {
-    pub name: String,
-    pub color: Option<String>,
-    pub family: Option<String>,
-    pub divider: Option<String>,
-    pub primary_color: Option<String>,
-    pub secondary_color: Option<String>,
-}
-
-const CURSOR_NAME_FACT: &str = "YAZELIX_CURSOR_NAME";
-const CURSOR_COLOR_FACT: &str = "YAZELIX_CURSOR_COLOR";
-const CURSOR_FAMILY_FACT: &str = "YAZELIX_CURSOR_FAMILY";
-const CURSOR_DIVIDER_FACT: &str = "YAZELIX_CURSOR_DIVIDER";
-const CURSOR_PRIMARY_COLOR_FACT: &str = "YAZELIX_CURSOR_PRIMARY_COLOR";
-const CURSOR_SECONDARY_COLOR_FACT: &str = "YAZELIX_CURSOR_SECONDARY_COLOR";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentUsageDisplay {
@@ -928,106 +908,6 @@ fn render_custom_text_segment_with_style(custom_text: &str, style: &BarStyle) ->
     }
 }
 
-pub fn render_cursor_status_widget(facts: &CursorWidgetFacts) -> String {
-    render_cursor_status_widget_with_appearance(facts, APPEARANCE_MODE_DARK)
-}
-
-pub fn render_cursor_status_widget_with_appearance(
-    facts: &CursorWidgetFacts,
-    appearance_mode: &str,
-) -> String {
-    let style = bar_style_for_appearance(appearance_mode);
-    let name = sanitize_cursor_name(&facts.name);
-    if name.is_empty() {
-        return String::new();
-    }
-
-    let color = facts
-        .color
-        .as_deref()
-        .and_then(normalize_hex_color)
-        .unwrap_or_else(|| style.cursor_default.to_string());
-    let frame_color = if style.light {
-        style.cursor_frame.to_string()
-    } else {
-        color.clone()
-    };
-
-    if let Some((glyph, primary_color, secondary_color)) = cursor_split_preview(facts, &color) {
-        let glyph_segment = format!("#[fg={primary_color},bg={secondary_color},bold]{glyph}");
-        return render_cursor_status_widget_frame(&frame_color, &glyph_segment, &name);
-    }
-
-    let glyph_color = cursor_glyph_color(&color, style);
-    let glyph_segment = format!("#[fg={glyph_color},bold]█");
-    render_cursor_status_widget_frame(&frame_color, &glyph_segment, &name)
-}
-
-pub fn cursor_widget_text_from_env() -> String {
-    render_cursor_status_widget(&cursor_widget_facts_from_pairs(std::env::vars()))
-}
-
-pub fn cursor_widget_text_from_env_with_appearance(appearance_mode: &str) -> String {
-    render_cursor_status_widget_with_appearance(
-        &cursor_widget_facts_from_pairs(std::env::vars()),
-        appearance_mode,
-    )
-}
-
-pub fn cursor_widget_text_from_fact_file(
-    path: impl AsRef<std::path::Path>,
-) -> std::io::Result<String> {
-    let raw = std::fs::read_to_string(path)?;
-    Ok(cursor_widget_text_from_fact_text(&raw))
-}
-
-pub fn cursor_widget_text_from_fact_file_with_appearance(
-    path: impl AsRef<std::path::Path>,
-    appearance_mode: &str,
-) -> std::io::Result<String> {
-    let raw = std::fs::read_to_string(path)?;
-    Ok(cursor_widget_text_from_fact_text_with_appearance(
-        &raw,
-        appearance_mode,
-    ))
-}
-
-pub fn cursor_widget_text_from_fact_text(raw: &str) -> String {
-    render_cursor_status_widget(&cursor_widget_facts_from_pairs(cursor_fact_file_pairs(raw)))
-}
-
-pub fn cursor_widget_text_from_fact_text_with_appearance(
-    raw: &str,
-    appearance_mode: &str,
-) -> String {
-    render_cursor_status_widget_with_appearance(
-        &cursor_widget_facts_from_pairs(cursor_fact_file_pairs(raw)),
-        appearance_mode,
-    )
-}
-
-pub fn cursor_widget_facts_from_pairs(
-    pairs: impl IntoIterator<Item = (String, String)>,
-) -> CursorWidgetFacts {
-    let mut facts = CursorWidgetFacts::default();
-    for (key, value) in pairs {
-        let value = value.trim();
-        if value.is_empty() {
-            continue;
-        }
-        match key.trim() {
-            CURSOR_NAME_FACT => facts.name = value.to_string(),
-            CURSOR_COLOR_FACT => facts.color = Some(value.to_string()),
-            CURSOR_FAMILY_FACT => facts.family = Some(value.to_string()),
-            CURSOR_DIVIDER_FACT => facts.divider = Some(value.to_string()),
-            CURSOR_PRIMARY_COLOR_FACT => facts.primary_color = Some(value.to_string()),
-            CURSOR_SECONDARY_COLOR_FACT => facts.secondary_color = Some(value.to_string()),
-            _ => {}
-        }
-    }
-    facts
-}
-
 pub fn current_cpu_usage_widget_text() -> String {
     let Some(before) = std::fs::read_to_string("/proc/stat")
         .ok()
@@ -1111,17 +991,6 @@ fn format_percent(percent: Option<u64>) -> String {
     percent
         .map(|percent| format!("{percent}%"))
         .unwrap_or_else(|| "??%".to_string())
-}
-
-fn cursor_fact_file_pairs(raw: &str) -> impl Iterator<Item = (String, String)> + '_ {
-    raw.lines().filter_map(|line| {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            return None;
-        }
-        let (key, value) = line.split_once('=')?;
-        Some((key.trim().to_string(), value.trim().to_string()))
-    })
 }
 
 fn insert_u64(
@@ -2459,80 +2328,6 @@ fn format_quota_percent(percent: u64) -> String {
     format!("{}%", percent.min(100))
 }
 
-fn cursor_split_preview(
-    facts: &CursorWidgetFacts,
-    fallback_primary_color: &str,
-) -> Option<(&'static str, String, String)> {
-    if facts.family.as_deref().map(str::trim) != Some("split") {
-        return None;
-    }
-
-    let glyph = match facts.divider.as_deref().map(str::trim)? {
-        "vertical" => "▌",
-        "horizontal" => "▀",
-        _ => return None,
-    };
-    let primary_color = facts
-        .primary_color
-        .as_deref()
-        .and_then(normalize_hex_color)
-        .unwrap_or_else(|| fallback_primary_color.to_string());
-    let secondary_color = facts
-        .secondary_color
-        .as_deref()
-        .and_then(normalize_hex_color)?;
-
-    Some((glyph, primary_color, secondary_color))
-}
-
-fn render_cursor_status_widget_frame(
-    accent_color: &str,
-    glyph_segment: &str,
-    name: &str,
-) -> String {
-    format!(
-        " #[fg={accent_color},bg=default,bold][{glyph_segment}#[fg={accent_color},bg=default,bold] {name}]"
-    )
-}
-
-fn normalize_hex_color(raw: &str) -> Option<String> {
-    let normalized = raw.trim().to_ascii_lowercase();
-    let valid = normalized.len() == 7
-        && normalized.starts_with('#')
-        && normalized[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
-    valid.then_some(normalized)
-}
-
-fn cursor_glyph_color(color: &str, style: &BarStyle) -> String {
-    if style.light && is_pale_hex_color(color) {
-        style.cursor_default.to_string()
-    } else {
-        color.to_string()
-    }
-}
-
-fn is_pale_hex_color(color: &str) -> bool {
-    let Some((red, green, blue)) = parse_hex_rgb(color) else {
-        return false;
-    };
-    let luminance = (0.2126 * red as f64 + 0.7152 * green as f64 + 0.0722 * blue as f64) / 255.0;
-    luminance > 0.62
-}
-
-fn parse_hex_rgb(color: &str) -> Option<(u8, u8, u8)> {
-    let normalized = normalize_hex_color(color)?;
-    let red = u8::from_str_radix(&normalized[1..3], 16).ok()?;
-    let green = u8::from_str_radix(&normalized[3..5], 16).ok()?;
-    let blue = u8::from_str_radix(&normalized[5..7], 16).ok()?;
-    Some((red, green, blue))
-}
-
-fn sanitize_cursor_name(name: &str) -> String {
-    name.chars()
-        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '/' | '.'))
-        .collect()
-}
-
 pub fn render_zjstatus_tab_label_formats(mode: &str) -> Result<TabLabelFormats, BarRenderError> {
     render_zjstatus_tab_label_formats_with_style(mode, &DARK_BAR_STYLE)
 }
@@ -2594,7 +2389,6 @@ fn render_widget_with_style(
         WIDGET_SHELL => Ok(format!(" {}[❯ {}]", style.widget, request.shell_label)),
         WIDGET_TERM => Ok(format!(" {}[🖵 {}]", style.widget, request.terminal_label)),
         WIDGET_WORKSPACE => Ok(PIPE_WORKSPACE.to_string()),
-        WIDGET_CURSOR => Ok(COMMAND_CURSOR.to_string()),
         WIDGET_CLAUDE_USAGE => Ok(COMMAND_CLAUDE_USAGE.to_string()),
         WIDGET_CODEX_USAGE => Ok(COMMAND_CODEX_USAGE.to_string()),
         WIDGET_OPENCODE_GO_USAGE => Ok(COMMAND_OPENCODE_GO_USAGE.to_string()),
@@ -2707,7 +2501,7 @@ mod tests {
 
         assert_eq!(
             rendered,
-            " #[fg=#00ff88,bold][🖹 hx] #[fg=#00ff88,bold][❯ nu] #[fg=#00ff88,bold][🖵 ghostty]{command_cursor}{command_codex_usage}{command_cpu}{command_ram}"
+            " #[fg=#00ff88,bold][🖹 hx] #[fg=#00ff88,bold][❯ nu] #[fg=#00ff88,bold][🖵 ghostty]{command_codex_usage}{command_cpu}{command_ram}"
         );
     }
 
@@ -2724,10 +2518,9 @@ mod tests {
     // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
     #[test]
     fn renders_workspace_widget_as_pushed_pipe_placeholder() {
-        let rendered =
-            render_widget_tray_segment(&render_request(&["workspace", "cursor"])).unwrap();
+        let rendered = render_widget_tray_segment(&render_request(&["workspace"])).unwrap();
 
-        assert_eq!(rendered, "{pipe_workspace}{command_cursor}");
+        assert_eq!(rendered, "{pipe_workspace}");
     }
 
     // Regression: agent usage widgets render through cache readers so expensive providers are never polled by zjstatus.
@@ -2792,9 +2585,7 @@ mod tests {
         assert!(rendered.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
         assert!(rendered.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
         assert!(!rendered.contains("command_workspace_command"));
-        assert!(rendered.contains(
-            r#"command_cursor_command "/runtime/bin/yazelix_zellij_bar_widget cursor --appearance dark""#
-        ));
+        assert!(!rendered.contains("command_cursor"));
         assert!(rendered.contains(
             r#"command_codex_usage_command "/runtime/bin/yazelix_zellij_bar_widget codex --display quota --periods 5h,week""#
         ));
@@ -2822,9 +2613,7 @@ mod tests {
         assert!(rendered.contains(r##"pipe_workspace_format "#[fg=#2f7d32,bold]{output}""##));
         assert!(rendered.contains(r##"command_codex_usage_format "#[fg=#7850a8,bold]{stdout}""##));
         assert!(rendered.contains(r##"command_cpu_format " #[fg=#a24f00][cpu {stdout}]""##));
-        assert!(rendered.contains(
-            r#"command_cursor_command "/runtime/bin/yazelix_zellij_bar_widget cursor --appearance light""#
-        ));
+        assert!(!rendered.contains("command_cursor"));
         assert!(!rendered.contains("#00ff88"));
     }
 
@@ -2872,42 +2661,6 @@ MemAvailable:   250000 kB
         );
     }
 
-    // Defends: standalone cursor rendering accepts Yazelix-compatible launch facts without importing Yazelix runtime code.
-    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
-    #[test]
-    fn cursor_widget_facts_render_from_env_pairs() {
-        let rendered = render_cursor_status_widget(&cursor_widget_facts_from_pairs([
-            (CURSOR_NAME_FACT.to_string(), "reef".to_string()),
-            (CURSOR_COLOR_FACT.to_string(), "#00ff66".to_string()),
-            (CURSOR_FAMILY_FACT.to_string(), "split".to_string()),
-            (CURSOR_DIVIDER_FACT.to_string(), "vertical".to_string()),
-            (CURSOR_PRIMARY_COLOR_FACT.to_string(), "#00e6ff".to_string()),
-            (
-                CURSOR_SECONDARY_COLOR_FACT.to_string(),
-                "#00ff66".to_string(),
-            ),
-        ]));
-
-        assert_eq!(
-            rendered,
-            " #[fg=#00ff66,bg=default,bold][#[fg=#00e6ff,bg=#00ff66,bold]▌#[fg=#00ff66,bg=default,bold] reef]"
-        );
-    }
-
-    // Defends: standalone users can feed cursor facts from a small path-based fact file instead of Yazelix session env.
-    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
-    #[test]
-    fn cursor_widget_facts_parse_key_value_fact_file() {
-        let facts = cursor_widget_facts_from_pairs(cursor_fact_file_pairs(
-            "\n# cursor facts\nYAZELIX_CURSOR_NAME = ember\nYAZELIX_CURSOR_COLOR = #ff8800\nignored=value\n",
-        ));
-
-        assert_eq!(
-            render_cursor_status_widget(&facts),
-            " #[fg=#ff8800,bg=default,bold][#[fg=#ff8800,bold]█#[fg=#ff8800,bg=default,bold] ember]"
-        );
-    }
-
     // Regression: dynamic command placeholders must preserve stable spacing around safe widgets.
     // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
     #[test]
@@ -2930,96 +2683,6 @@ MemAvailable:   250000 kB
             "#[fg=#ffff00,bold][verdant-lake] "
         );
         assert_eq!(render_custom_text_segment("   "), "");
-    }
-
-    // Defends: standalone cursor facts render the same mono and split previews Yazelix feeds into the status cache.
-    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
-    #[test]
-    fn renders_cursor_status_widget_from_explicit_facts() {
-        assert_eq!(
-            render_cursor_status_widget(&CursorWidgetFacts {
-                name: "reef".into(),
-                color: Some("#14D9A0".into()),
-                family: Some("mono".into()),
-                ..CursorWidgetFacts::default()
-            }),
-            " #[fg=#14d9a0,bg=default,bold][#[fg=#14d9a0,bold]█#[fg=#14d9a0,bg=default,bold] reef]"
-        );
-        assert_eq!(
-            render_cursor_status_widget(&CursorWidgetFacts {
-                name: "reef".into(),
-                color: Some("#00e6ff".into()),
-                family: Some("split".into()),
-                divider: Some("vertical".into()),
-                primary_color: Some("#00e6ff".into()),
-                secondary_color: Some("#00ff66".into()),
-            }),
-            " #[fg=#00e6ff,bg=default,bold][#[fg=#00e6ff,bg=#00ff66,bold]▌#[fg=#00e6ff,bg=default,bold] reef]"
-        );
-        assert_eq!(
-            render_cursor_status_widget(&CursorWidgetFacts {
-                name: "magma".into(),
-                color: Some("#ff1600".into()),
-                family: Some("split".into()),
-                divider: Some("horizontal".into()),
-                primary_color: Some("#ff1600".into()),
-                secondary_color: Some("#2a3340".into()),
-            }),
-            " #[fg=#ff1600,bg=default,bold][#[fg=#ff1600,bg=#2a3340,bold]▀#[fg=#ff1600,bg=default,bold] magma]"
-        );
-    }
-
-    // Regression: missing or unsafe cursor facts hide the widget or fall back without leaking markup-breaking text.
-    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
-    #[test]
-    fn cursor_status_widget_handles_missing_and_partial_facts() {
-        assert_eq!(
-            render_cursor_status_widget(&CursorWidgetFacts {
-                name: "n/a".into(),
-                ..CursorWidgetFacts::default()
-            }),
-            " #[fg=#00ff88,bg=default,bold][#[fg=#00ff88,bold]█#[fg=#00ff88,bg=default,bold] n/a]"
-        );
-        assert_eq!(
-            render_cursor_status_widget(&CursorWidgetFacts {
-                name: "bad #[fg=#fff] name".into(),
-                ..CursorWidgetFacts::default()
-            }),
-            " #[fg=#00ff88,bg=default,bold][#[fg=#00ff88,bold]█#[fg=#00ff88,bg=default,bold] badfgfffname]"
-        );
-        assert_eq!(
-            render_cursor_status_widget(&CursorWidgetFacts::default()),
-            ""
-        );
-        assert_eq!(
-            render_cursor_status_widget(&CursorWidgetFacts {
-                name: "magma".into(),
-                color: Some("#ff1600".into()),
-                family: Some("split".into()),
-                divider: Some("horizontal".into()),
-                primary_color: Some("#ff1600".into()),
-                secondary_color: Some("hot".into()),
-            }),
-            " #[fg=#ff1600,bg=default,bold][#[fg=#ff1600,bold]█#[fg=#ff1600,bg=default,bold] magma]"
-        );
-    }
-
-    // Regression: pale cursor colors must not make the light-mode status segment unreadable.
-    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
-    #[test]
-    fn light_cursor_status_widget_uses_safe_frame_color() {
-        assert_eq!(
-            render_cursor_status_widget_with_appearance(
-                &CursorWidgetFacts {
-                    name: "whiteout".into(),
-                    color: Some("#ffffff".into()),
-                    family: Some("mono".into()),
-                    ..CursorWidgetFacts::default()
-                },
-                "light",
-            ),
-            " #[fg=#2f7d32,bg=default,bold][#[fg=#5c5f77,bold]█#[fg=#2f7d32,bg=default,bold] whiteout]"
-        );
     }
 
     // Defends: Codex cached usage facts support quota, token, both, partial quota, and elapsed reset-window labels outside Yazelix.

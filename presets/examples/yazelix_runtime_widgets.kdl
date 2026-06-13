@@ -1,14 +1,9 @@
 // These snippets require the full Yazelix runtime and its cached status helpers.
 // Workspace and version are Yazelix-only. Other widgets are bar-owned commands.
 
-format_right "#[fg=#ff0088,bold]{session}{pipe_workspace}{command_cursor}{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]YZX {command_version} "
+format_right "#[fg=#ff0088,bold]{session}{pipe_workspace}{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]YZX {command_version} "
 
 pipe_workspace_format "#[fg=#00ff88,bold]{output}"
-
-command_cursor_command "yazelix_zellij_bar_widget cursor"
-command_cursor_format "{stdout}"
-command_cursor_rendermode "dynamic"
-command_cursor_interval "10"
 
 command_claude_usage_command "yazelix_zellij_bar_widget claude --display both"
 command_claude_usage_format "#[fg=#bb88ff,bold]{stdout}"

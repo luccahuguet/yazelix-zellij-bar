@@ -61,7 +61,6 @@ The optional provider widgets only need their own upstream facts:
 
 - `codex_usage` and `claude_usage` use `tokenusage` when it is available on `PATH`
 - `opencode_go_usage` reads OpenCode Go SQLite databases from default locations or explicit `--db` paths
-- `cursor` reads `YAZELIX_CURSOR_*` environment facts first, then asks `yzc current --format env` when `yazelix-cursors` is available on `PATH`; `--appearance dark|light|auto` selects the cursor status palette
 - `cpu` and `ram` read Linux `/proc` directly
 
 None of those widget commands require Yazelix runtime paths, `yzx_control`, or a Yazelix session cache
@@ -99,12 +98,7 @@ layout {
         plugin location="file:/absolute/path/to/share/yazelix_zellij_bar/zjstatus.wasm" {
             format_left "{mode} {tabs}"
             format_center ""
-            format_right "#[fg=#ff0088,bold]{session}{command_cursor}{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]yzx bar "
-
-            command_cursor_command "yazelix_zellij_bar_widget cursor"
-            command_cursor_format "{stdout}"
-            command_cursor_rendermode "dynamic"
-            command_cursor_interval "10"
+            format_right "#[fg=#ff0088,bold]{session}{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]yzx bar "
 
             command_claude_usage_command "yazelix_zellij_bar_widget claude"
             command_claude_usage_format "#[fg=#bb88ff,bold]{stdout}"
@@ -133,8 +127,6 @@ layout {
 
 Replace the `zjstatus.wasm` path with the installed package path. If you install through Nix profiles, `nix profile list` shows the profile entry, and the installed files live under that package output
 
-For cursor display outside Yazelix, install `yazelix-cursors` and keep `yzc` on `PATH`. If no cursor facts or `yzc` command are available, the cursor widget prints nothing instead of failing the bar
-
 Provider widgets maintain their own cache, lock, freshness, and error-backoff files under `$XDG_CACHE_HOME/yazelix_zellij_bar` or `$HOME/.cache/yazelix_zellij_bar`. Use `--cache` only when overriding the default. Yazelix may omit it because the full runtime exports `YAZELIX_STATUS_BAR_CACHE_PATH`
 
 ## Standalone Fact Renderers
@@ -144,22 +136,8 @@ The Rust crate also exposes renderer helpers for embedders that want Yazelix-sty
 - `render_zjstatus_bar_segments` for editor, shell, terminal, custom text, and widget-tray placeholders
 - `render_zjstatus_tab_label_formats` for full and compact tab labels
 - `render_yazelix_runtime_plugin_block` for the full integrated Yazelix zjstatus plugin block from typed runtime config, `appearance_mode`, and the child-owned runtime KDL template
-- `render_cursor_status_widget` for `yazelix-cursors`-compatible cursor facts
 - `render_codex_usage_status_widget` for cached Codex usage facts
 - `render_windowed_agent_usage_status_widget` for Claude, OpenCode Go, or another cached windowed provider
-
-Minimal cursor fact example:
-
-```rust
-use yazelix_zellij_bar::{CursorWidgetFacts, render_cursor_status_widget};
-
-let text = render_cursor_status_widget(&CursorWidgetFacts {
-    name: "reef".into(),
-    color: Some("#14d9a0".into()),
-    family: Some("mono".into()),
-    ..CursorWidgetFacts::default()
-});
-```
 
 Minimal cached provider example:
 
@@ -189,7 +167,7 @@ Those helpers are facts-in, styled-text-out. They do not read `~/.config/yazelix
 
 Workspace remains Yazelix-only because it is derived from Yazelix session facts and pushed into a `pipe_workspace` widget by the Yazelix pane orchestrator. Yazelix version display is also Yazelix-only because it reads the active Yazelix runtime identity
 
-CPU, RAM, cursor, Codex, Claude, and OpenCode Go widgets are bar-owned standalone commands. Yazelix-only integration for those widgets is limited to generated layout wiring, environment hydration, and default cache-path derivation from the full runtime
+CPU, RAM, Codex, Claude, and OpenCode Go widgets are bar-owned standalone commands. Yazelix-only integration for those widgets is limited to generated layout wiring and default cache-path derivation from the full runtime
 
 The full Yazelix runtime consumes this child repo for integrated zjstatus plugin rendering and the integrated standalone package. The child repo packages `zjstatus.wasm` from its pinned `zjstatus` flake input so the package does not require manual artifact copying
 
