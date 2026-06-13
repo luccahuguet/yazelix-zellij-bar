@@ -1,7 +1,7 @@
 // Copy selected lines into the `plugin { ... }` block in yazelix_zellij_bar.kdl.
 // Command stdout should be short plain text; keep style in the *_format values.
 
-format_right "#[fg=#ff0088,bold]{session} {datetime} {command_host} {command_status} #[fg=#00ccff,bold]YAZELIX BAR "
+format_right "#[fg=#ff0088,bold]{session} {datetime} {command_host} {command_status} #[fg=#00ccff,bold]yzx bar "
 
 command_host_command "hostname -s"
 command_host_format " #[fg=#00ff88,bold][{stdout}]"

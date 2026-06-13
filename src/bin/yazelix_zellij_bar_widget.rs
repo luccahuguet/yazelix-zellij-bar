@@ -469,7 +469,7 @@ mod tests {
             )
         );
         assert!(plugin_block.contains(
-            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][editor: hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YAZELIX {command_version} \" // {datetime}"
+            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][🖹 hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]yzx {command_version} \" // {datetime}"
         ));
         assert!(plugin_block.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
         assert!(plugin_block.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));

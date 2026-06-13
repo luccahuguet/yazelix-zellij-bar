@@ -3,7 +3,7 @@ plugin location="__YAZELIX_ZELLIJ_BAR_ZJSTATUS_WASM__" {
     // Common generic placeholders: {mode}, {tabs}, {session}, {datetime}
     format_left   "{mode} {tabs}"
     format_center ""
-    format_right  "#[fg=#ff0088,bold]{session} {datetime} #[fg=#00ccff,bold]YAZELIX BAR "
+    format_right  "#[fg=#ff0088,bold]{session} {datetime} #[fg=#00ccff,bold]yzx bar "
     format_hide_on_overlength "true"
     format_precedence "lrc"
     format_space  ""

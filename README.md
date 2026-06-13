@@ -80,7 +80,7 @@ The main customization knobs are:
 Generic zjstatus placeholders such as `{mode}`, `{tabs}`, `{session}`, and `{datetime}` work without Yazelix. To add a host/status command widget, start from:
 
 ```kdl
-format_right "#[fg=#ff0088,bold]{session} {datetime} {command_host} #[fg=#00ccff,bold]YAZELIX BAR "
+format_right "#[fg=#ff0088,bold]{session} {datetime} {command_host} #[fg=#00ccff,bold]yzx bar "
 
 command_host_command "hostname -s"
 command_host_format " #[fg=#00ff88,bold][{stdout}]"
@@ -99,7 +99,7 @@ layout {
         plugin location="file:/absolute/path/to/share/yazelix_zellij_bar/zjstatus.wasm" {
             format_left "{mode} {tabs}"
             format_center ""
-            format_right "#[fg=#ff0088,bold]{session}{command_cursor}{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]YAZELIX BAR "
+            format_right "#[fg=#ff0088,bold]{session}{command_cursor}{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]yzx bar "
 
             command_cursor_command "yazelix_zellij_bar_widget cursor"
             command_cursor_format "{stdout}"
