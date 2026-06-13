@@ -112,13 +112,13 @@ pub struct YazelixRuntimeBarRender {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TabLabelFormats {
-    pub tab_normal: &'static str,
-    pub tab_normal_fullscreen: &'static str,
-    pub tab_normal_sync: &'static str,
-    pub tab_active: &'static str,
-    pub tab_active_fullscreen: &'static str,
-    pub tab_active_sync: &'static str,
-    pub tab_rename: &'static str,
+    pub tab_normal: String,
+    pub tab_normal_fullscreen: String,
+    pub tab_normal_sync: String,
+    pub tab_active: String,
+    pub tab_active_fullscreen: String,
+    pub tab_active_sync: String,
+    pub tab_rename: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -873,12 +873,12 @@ pub fn render_yazelix_runtime_plugin_block(
 
 fn render_tab_label_block(tab_labels: &TabLabelFormats) -> String {
     [
-        tab_labels.tab_normal,
-        tab_labels.tab_normal_fullscreen,
-        tab_labels.tab_normal_sync,
-        tab_labels.tab_active,
-        tab_labels.tab_active_fullscreen,
-        tab_labels.tab_active_sync,
+        tab_labels.tab_normal.as_str(),
+        tab_labels.tab_normal_fullscreen.as_str(),
+        tab_labels.tab_normal_sync.as_str(),
+        tab_labels.tab_active.as_str(),
+        tab_labels.tab_active_fullscreen.as_str(),
+        tab_labels.tab_active_sync.as_str(),
     ]
     .into_iter()
     .map(|line| format!("    {line}"))
@@ -2541,58 +2541,46 @@ fn render_zjstatus_tab_label_formats_with_style(
     mode: &str,
     style: &BarStyle,
 ) -> Result<TabLabelFormats, BarRenderError> {
-    if style.light {
-        return render_light_zjstatus_tab_label_formats(mode);
-    }
-
     match mode {
-        TAB_LABEL_MODE_FULL => Ok(TabLabelFormats {
-            tab_normal: r##"tab_normal   "#[fg=#ffff00] [{index}] {name} ""##,
-            tab_normal_fullscreen: r##"tab_normal_fullscreen "#[fg=#ffff00] [{index}] {name} [] ""##,
-            tab_normal_sync: r##"tab_normal_sync       "#[fg=#ffff00] [{index}] {name} <> ""##,
-            tab_active: r##"tab_active   "#[bg=#ff6600,fg=#000000,bold] [{index}] {name} {floating_indicator}""##,
-            tab_active_fullscreen: r##"tab_active_fullscreen "#[bg=#ff6600,fg=#000000,bold] [{index}] {name} {fullscreen_indicator}""##,
-            tab_active_sync: r##"tab_active_sync       "#[bg=#ff6600,fg=#000000,bold] [{index}] {name} {sync_indicator}""##,
-            tab_rename: r##"tab_rename    "#[bg=#ff6600,fg=#000000,bold] {index} {name} {floating_indicator} ""##,
-        }),
-        TAB_LABEL_MODE_COMPACT => Ok(TabLabelFormats {
-            tab_normal: r##"tab_normal   "#[fg=#ffff00] [{index}] ""##,
-            tab_normal_fullscreen: r##"tab_normal_fullscreen "#[fg=#ffff00] [{index}] [] ""##,
-            tab_normal_sync: r##"tab_normal_sync       "#[fg=#ffff00] [{index}] <> ""##,
-            tab_active: r##"tab_active   "#[bg=#ff6600,fg=#000000,bold] [{index}] {floating_indicator}""##,
-            tab_active_fullscreen: r##"tab_active_fullscreen "#[bg=#ff6600,fg=#000000,bold] [{index}] {fullscreen_indicator}""##,
-            tab_active_sync: r##"tab_active_sync       "#[bg=#ff6600,fg=#000000,bold] [{index}] {sync_indicator}""##,
-            tab_rename: r##"tab_rename    "#[bg=#ff6600,fg=#000000,bold] {index} {name} {floating_indicator} ""##,
-        }),
+        TAB_LABEL_MODE_FULL => Ok(render_tab_label_formats(style, true)),
+        TAB_LABEL_MODE_COMPACT => Ok(render_tab_label_formats(style, false)),
         _ => Err(BarRenderError::InvalidTabLabelMode {
             mode: mode.to_string(),
         }),
     }
 }
 
-fn render_light_zjstatus_tab_label_formats(mode: &str) -> Result<TabLabelFormats, BarRenderError> {
-    match mode {
-        TAB_LABEL_MODE_FULL => Ok(TabLabelFormats {
-            tab_normal: r##"tab_normal   "#[fg=#5c5f77] [{index}] {name} ""##,
-            tab_normal_fullscreen: r##"tab_normal_fullscreen "#[fg=#5c5f77] [{index}] {name} [] ""##,
-            tab_normal_sync: r##"tab_normal_sync       "#[fg=#5c5f77] [{index}] {name} <> ""##,
-            tab_active: r##"tab_active   "#[bg=#ccd0da,fg=#303446,bold] [{index}] {name} {floating_indicator}""##,
-            tab_active_fullscreen: r##"tab_active_fullscreen "#[bg=#ccd0da,fg=#303446,bold] [{index}] {name} {fullscreen_indicator}""##,
-            tab_active_sync: r##"tab_active_sync       "#[bg=#ccd0da,fg=#303446,bold] [{index}] {name} {sync_indicator}""##,
-            tab_rename: r##"tab_rename    "#[bg=#ccd0da,fg=#303446,bold] {index} {name} {floating_indicator} ""##,
-        }),
-        TAB_LABEL_MODE_COMPACT => Ok(TabLabelFormats {
-            tab_normal: r##"tab_normal   "#[fg=#5c5f77] [{index}] ""##,
-            tab_normal_fullscreen: r##"tab_normal_fullscreen "#[fg=#5c5f77] [{index}] [] ""##,
-            tab_normal_sync: r##"tab_normal_sync       "#[fg=#5c5f77] [{index}] <> ""##,
-            tab_active: r##"tab_active   "#[bg=#ccd0da,fg=#303446,bold] [{index}] {floating_indicator}""##,
-            tab_active_fullscreen: r##"tab_active_fullscreen "#[bg=#ccd0da,fg=#303446,bold] [{index}] {fullscreen_indicator}""##,
-            tab_active_sync: r##"tab_active_sync       "#[bg=#ccd0da,fg=#303446,bold] [{index}] {sync_indicator}""##,
-            tab_rename: r##"tab_rename    "#[bg=#ccd0da,fg=#303446,bold] {index} {name} {floating_indicator} ""##,
-        }),
-        _ => Err(BarRenderError::InvalidTabLabelMode {
-            mode: mode.to_string(),
-        }),
+fn render_tab_label_formats(style: &BarStyle, include_name: bool) -> TabLabelFormats {
+    let name = if include_name { " {name}" } else { "" };
+    TabLabelFormats {
+        tab_normal: format!(
+            r##"tab_normal   "{} [{{index}}]{} ""##,
+            style.tab_normal, name
+        ),
+        tab_normal_fullscreen: format!(
+            r##"tab_normal_fullscreen "{} [{{index}}]{} [] ""##,
+            style.tab_normal, name
+        ),
+        tab_normal_sync: format!(
+            r##"tab_normal_sync       "{} [{{index}}]{} <> ""##,
+            style.tab_normal, name
+        ),
+        tab_active: format!(
+            r##"tab_active   "{} [{{index}}]{} {{floating_indicator}}""##,
+            style.tab_active, name
+        ),
+        tab_active_fullscreen: format!(
+            r##"tab_active_fullscreen "{} [{{index}}]{} {{fullscreen_indicator}}""##,
+            style.tab_active, name
+        ),
+        tab_active_sync: format!(
+            r##"tab_active_sync       "{} [{{index}}]{} {{sync_indicator}}""##,
+            style.tab_active, name
+        ),
+        tab_rename: format!(
+            r##"tab_rename    "{} {{index}} {{name}} {{floating_indicator}} ""##,
+            style.tab_active
+        ),
     }
 }
 
