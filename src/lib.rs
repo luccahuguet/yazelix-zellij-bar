@@ -118,6 +118,94 @@ pub struct TabLabelFormats {
     pub tab_rename: String,
 }
 
+pub const TAB_ACTIVITY_LABEL_STATE_IDLE: &str = "idle";
+pub const TAB_ACTIVITY_LABEL_STATE_BUSY: &str = "busy";
+pub const TAB_ACTIVITY_LABEL_STATE_ALERT: &str = "alert";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TabActivityLabelState {
+    Idle,
+    Busy,
+    Alert,
+}
+
+impl TabActivityLabelState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => TAB_ACTIVITY_LABEL_STATE_IDLE,
+            Self::Busy => TAB_ACTIVITY_LABEL_STATE_BUSY,
+            Self::Alert => TAB_ACTIVITY_LABEL_STATE_ALERT,
+        }
+    }
+
+    pub fn from_state_token(state: &str) -> Option<Self> {
+        match state.trim() {
+            TAB_ACTIVITY_LABEL_STATE_IDLE => Some(Self::Idle),
+            TAB_ACTIVITY_LABEL_STATE_BUSY => Some(Self::Busy),
+            TAB_ACTIVITY_LABEL_STATE_ALERT => Some(Self::Alert),
+            _ => None,
+        }
+    }
+}
+
+impl Default for TabActivityLabelState {
+    fn default() -> Self {
+        Self::Idle
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabActivityLabelRequest<'a> {
+    pub index: usize,
+    pub base_name: &'a str,
+    pub state: TabActivityLabelState,
+    pub include_name: bool,
+}
+
+pub fn tab_activity_label_state(states: &[TabActivityLabelState]) -> TabActivityLabelState {
+    if states.contains(&TabActivityLabelState::Alert) {
+        return TabActivityLabelState::Alert;
+    }
+
+    if states.contains(&TabActivityLabelState::Busy) {
+        return TabActivityLabelState::Busy;
+    }
+
+    TabActivityLabelState::Idle
+}
+
+pub fn render_tab_activity_marker(state: TabActivityLabelState) -> &'static str {
+    match state {
+        TabActivityLabelState::Idle => "",
+        TabActivityLabelState::Busy => "[...]",
+        TabActivityLabelState::Alert => "[!]",
+    }
+}
+
+pub fn render_tab_activity_name(base_name: &str, state: TabActivityLabelState) -> String {
+    let marker = render_tab_activity_marker(state);
+    if marker.is_empty() {
+        return base_name.to_string();
+    }
+
+    format!("{marker} {base_name}")
+}
+
+pub fn render_tab_activity_label(request: &TabActivityLabelRequest<'_>) -> String {
+    let suffix = if request.include_name {
+        render_tab_activity_name(request.base_name, request.state)
+    } else {
+        render_tab_activity_marker(request.state).to_string()
+    };
+
+    if suffix.is_empty() {
+        return format!("[{}]", request.index);
+    }
+
+    format!("[{}] {suffix}", request.index)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BarRenderError {
     InvalidWidgetTrayEntry { entry: String },
@@ -3173,6 +3261,66 @@ fi
         assert!(formats.tab_active_sync.contains("{sync_indicator}"));
         assert!(!formats.tab_active.contains("{name}"));
         assert!(formats.tab_rename.contains("{name}"));
+    }
+
+    // Defends: activity tab labels reduce multiple facts to alert before busy before idle.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn activity_tab_label_state_prioritizes_alert_then_busy_then_idle() {
+        assert_eq!(
+            tab_activity_label_state(&[
+                TabActivityLabelState::Idle,
+                TabActivityLabelState::Busy,
+                TabActivityLabelState::Alert
+            ]),
+            TabActivityLabelState::Alert
+        );
+        assert_eq!(
+            tab_activity_label_state(&[TabActivityLabelState::Idle, TabActivityLabelState::Busy]),
+            TabActivityLabelState::Busy
+        );
+        assert_eq!(
+            tab_activity_label_state(&[TabActivityLabelState::Idle]),
+            TabActivityLabelState::Idle
+        );
+        assert_eq!(tab_activity_label_state(&[]), TabActivityLabelState::Idle);
+    }
+
+    // Defends: bar-owned activity presentation stays plain text so it can feed either zjstatus names or a native bar renderer.
+    // Strength: defect=2 behavior=2 resilience=1 cost=1 uniqueness=2 total=8/10
+    #[test]
+    fn renders_plain_activity_tab_names_and_labels() {
+        assert_eq!(
+            render_tab_activity_name("agent", TabActivityLabelState::Alert),
+            "[!] agent"
+        );
+        assert_eq!(
+            render_tab_activity_label(&TabActivityLabelRequest {
+                index: 2,
+                base_name: "agent",
+                state: TabActivityLabelState::Busy,
+                include_name: true,
+            }),
+            "[2] [...] agent"
+        );
+        assert_eq!(
+            render_tab_activity_label(&TabActivityLabelRequest {
+                index: 2,
+                base_name: "agent",
+                state: TabActivityLabelState::Busy,
+                include_name: false,
+            }),
+            "[2] [...]"
+        );
+        assert_eq!(
+            render_tab_activity_label(&TabActivityLabelRequest {
+                index: 2,
+                base_name: "agent",
+                state: TabActivityLabelState::Idle,
+                include_name: false,
+            }),
+            "[2]"
+        );
     }
 
     // Regression: unsupported tab label modes fail fast instead of emitting broken zjstatus KDL.
