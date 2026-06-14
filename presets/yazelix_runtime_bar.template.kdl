@@ -1,5 +1,5 @@
 plugin location="__YAZELIX_RUNTIME_ZJSTATUS_PLUGIN_URL__" {
-    format_left   "{mode} {command_yazelix_tabs}"
+    format_left   "{mode} {tabs}"
     format_center ""
     format_right  "__YAZELIX_RUNTIME_STYLE_SESSION__{session}__YAZELIX_RUNTIME_WIDGET_TRAY__ __YAZELIX_RUNTIME_CUSTOM_TEXT____YAZELIX_RUNTIME_STYLE_BRAND__YZX {command_version} " // {datetime}
     format_hide_on_overlength "true"
@@ -19,6 +19,8 @@ __YAZELIX_RUNTIME_TAB_RENAME__
     tab_sync_indicator       "<> "
     tab_fullscreen_indicator "[] "
     tab_floating_indicator   "__YAZELIX_RUNTIME_FLOATING_INDICATOR__"
+    tab_bell_indicator       ""
+    tab_flashing_bell_indicator ""
     tab_display_count "6"
     tab_truncate_start_format "__YAZELIX_RUNTIME_STYLE_TAB_TRUNCATE__< +{count} ... "
     tab_truncate_end_format   "__YAZELIX_RUNTIME_STYLE_TAB_TRUNCATE__... +{count} > "
@@ -51,9 +53,4 @@ __YAZELIX_RUNTIME_TAB_RENAME__
     command_version_command "__YAZELIX_RUNTIME_WIDGET_BIN__ version --runtime-dir __YAZELIX_RUNTIME_DIR__"
     command_version_format "{stdout}"
     command_version_interval "3600"
-
-    command_yazelix_tabs_command "__YAZELIX_RUNTIME_WIDGET_BIN__ tabs --appearance __YAZELIX_RUNTIME_APPEARANCE_MODE__ --mode __YAZELIX_RUNTIME_TAB_LABEL_MODE__"
-    command_yazelix_tabs_format "{stdout}"
-    command_yazelix_tabs_rendermode "dynamic"
-    command_yazelix_tabs_interval "1"
 }

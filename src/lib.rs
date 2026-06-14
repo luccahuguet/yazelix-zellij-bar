@@ -114,6 +114,8 @@ pub struct TabLabelFormats {
     pub tab_normal: String,
     pub tab_normal_fullscreen: String,
     pub tab_normal_sync: String,
+    pub tab_normal_bell: String,
+    pub tab_normal_flashing_bell: String,
     pub tab_active: String,
     pub tab_active_fullscreen: String,
     pub tab_active_sync: String,
@@ -1374,6 +1376,8 @@ fn render_tab_label_block(tab_labels: &TabLabelFormats) -> String {
         tab_labels.tab_normal.as_str(),
         tab_labels.tab_normal_fullscreen.as_str(),
         tab_labels.tab_normal_sync.as_str(),
+        tab_labels.tab_normal_bell.as_str(),
+        tab_labels.tab_normal_flashing_bell.as_str(),
         tab_labels.tab_active.as_str(),
         tab_labels.tab_active_fullscreen.as_str(),
         tab_labels.tab_active_sync.as_str(),
@@ -2878,6 +2882,14 @@ fn render_tab_label_formats(style: &BarStyle, include_name: bool) -> TabLabelFor
             r##"tab_normal_sync       "{} [{{index}}]{} <> ""##,
             style.tab_normal, name
         ),
+        tab_normal_bell: format!(
+            r##"tab_normal_bell "{} [{{index}}]{} {{sync_indicator}}{{fullscreen_indicator}}""##,
+            style.tab_bell, name
+        ),
+        tab_normal_flashing_bell: format!(
+            r##"tab_normal_flashing_bell "{} [{{index}}]{} {{sync_indicator}}{{fullscreen_indicator}}""##,
+            style.tab_flashing_bell, name
+        ),
         tab_active: format!(
             r##"tab_active   "{} [{{index}}]{} {{floating_indicator}}""##,
             style.tab_active, name
@@ -3100,8 +3112,14 @@ mod tests {
         assert!(rendered.contains(
             "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][🖹 hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
         ));
+        assert!(rendered.contains(r#"format_left   "{mode} {tabs}""#));
         assert!(rendered.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
+        assert!(rendered.contains(
+            r##"tab_normal_bell "#[fg=#ff0088,bold] [{index}] {sync_indicator}{fullscreen_indicator}""##
+        ));
+        assert!(rendered.contains(r##"tab_bell_indicator       """##));
         assert!(rendered.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
+        assert!(!rendered.contains("command_yazelix_tabs_command"));
         assert!(!rendered.contains("command_workspace_command"));
         assert!(!rendered.contains("command_cursor"));
         assert!(rendered.contains(
@@ -3127,6 +3145,12 @@ mod tests {
         assert!(rendered.contains(r##"mode_normal  "#[bg=#cfe8d4,fg=#1f5f32,bold] NORMAL ""##));
         assert!(rendered.contains(
             r##"tab_active   "#[bg=#ccd0da,fg=#303446,bold] [{index}] {floating_indicator}""##
+        ));
+        assert!(rendered.contains(
+            r##"tab_normal_bell "#[fg=#b4637a,bold] [{index}] {sync_indicator}{fullscreen_indicator}""##
+        ));
+        assert!(rendered.contains(
+            r##"tab_normal_flashing_bell "#[bg=#b4637a,fg=#fffaf3,bold] [{index}] {sync_indicator}{fullscreen_indicator}""##
         ));
         assert!(rendered.contains(r##"pipe_workspace_format "#[fg=#2f7d32,bold]{output}""##));
         assert!(rendered.contains(r##"command_codex_usage_format "#[fg=#7850a8,bold]{stdout}""##));
@@ -3266,15 +3290,20 @@ MemAvailable:   250000 kB
         write_tokenusage_provider_script(
             &bin_dir,
             r#"#!/usr/bin/env sh
-if [ "$1" = "blocks" ] && [ "$4" = "--official-limits" ]; then
+case " $* " in
+*" --official-limits "*)
   printf '%s\n' '{"official_codex":{"primary_used_percent":51.0,"secondary_used_percent":20.0,"primary_resets_at":8200,"primary_window_mins":300,"secondary_resets_at":260200,"secondary_window_mins":10080}}'
-elif [ "$1" = "blocks" ]; then
+  ;;
+*)
+if [ "$1" = "blocks" ]; then
   printf '%s\n' '{"blocks":[{"isActive":true,"totals":{"total_tokens":138456789}}]}'
 elif [ "$1" = "weekly" ]; then
   printf '%s\n' '{"weekly":[{"totals":{"total_tokens":1337000000}}]}'
 else
   exit 1
 fi
+  ;;
+esac
 "#,
         );
         let cache_path = temp.join("agent_usage").join("codex_usage_cache_v2.json");
@@ -3285,7 +3314,7 @@ fi
             now_unix_seconds: 1_000,
             max_age_seconds: 600,
             error_backoff_seconds: 1_800,
-            timeout: std::time::Duration::from_secs(1),
+            timeout: std::time::Duration::from_secs(5),
             display: AgentUsageDisplay::Both,
             periods: &[AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly],
         })
@@ -3379,15 +3408,20 @@ fi
         write_tokenusage_provider_script(
             &bin_dir,
             r#"#!/usr/bin/env sh
-if [ "$1" = "blocks" ] && [ "$4" = "--official-limits" ]; then
+case " $* " in
+*" --official-limits "*)
   printf '%s\n' '{"official_claude":{"primary_used_percent":51.0,"secondary_used_percent":20.0}}'
-elif [ "$1" = "blocks" ]; then
+  ;;
+*)
+if [ "$1" = "blocks" ]; then
   printf '%s\n' '{"blocks":[{"isActive":true,"totals":{"total_tokens":15456373}}]}'
 elif [ "$1" = "weekly" ]; then
   printf '%s\n' '{"weekly":[{"totals":{"total_tokens":66610005}}]}'
 else
   exit 1
 fi
+  ;;
+esac
 "#,
         );
         let cache_path = temp.join("agent_usage").join("claude_usage_cache_v1.json");
@@ -3398,7 +3432,7 @@ fi
             now_unix_seconds: 1_000,
             max_age_seconds: 600,
             error_backoff_seconds: 1_800,
-            timeout: std::time::Duration::from_secs(1),
+            timeout: std::time::Duration::from_secs(5),
             display: AgentUsageDisplay::Both,
             periods: &[AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly],
         })
@@ -3673,6 +3707,14 @@ fi
         let formats = render_zjstatus_tab_label_formats(TAB_LABEL_MODE_FULL).unwrap();
 
         assert!(formats.tab_normal.contains("[{index}] {name}"));
+        assert!(!formats.tab_normal.contains("{bell_indicator}"));
+        assert!(formats.tab_normal_bell.contains("[{index}] {name}"));
+        assert!(!formats.tab_normal_bell.contains("{bell_indicator}"));
+        assert!(
+            !formats
+                .tab_normal_flashing_bell
+                .contains("{bell_indicator}")
+        );
         assert!(formats.tab_active.contains("[{index}] {name}"));
         assert!(formats.tab_rename.contains("{index} {name}"));
     }
@@ -3687,6 +3729,13 @@ fi
             formats.tab_normal,
             r##"tab_normal   "#[fg=#ffff00] [{index}] ""##
         );
+        assert!(
+            formats
+                .tab_normal_bell
+                .contains("[{index}] {sync_indicator}")
+        );
+        assert!(!formats.tab_normal_bell.contains("{bell_indicator}"));
+        assert!(!formats.tab_normal_bell.contains("{name}"));
         assert!(formats.tab_normal_fullscreen.contains("{index}] []"));
         assert!(formats.tab_active_sync.contains("{sync_indicator}"));
         assert!(!formats.tab_active.contains("{name}"));

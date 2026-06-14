@@ -482,12 +482,13 @@ mod tests {
             "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][🖹 hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
         ));
         assert!(plugin_block.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
-        assert!(plugin_block.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
-        assert!(plugin_block.contains(r#"format_left   "{mode} {command_yazelix_tabs}""#));
         assert!(plugin_block.contains(
-            r#"command_yazelix_tabs_command "/runtime/libexec/yazelix_zellij_bar_widget tabs --appearance dark --mode compact""#
+            r##"tab_normal_bell "#[fg=#ff0088,bold] [{index}] {sync_indicator}{fullscreen_indicator}""##
         ));
-        assert!(plugin_block.contains(r#"command_yazelix_tabs_interval "1""#));
+        assert!(plugin_block.contains(r##"tab_bell_indicator       """##));
+        assert!(plugin_block.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
+        assert!(plugin_block.contains(r#"format_left   "{mode} {tabs}""#));
+        assert!(!plugin_block.contains("command_yazelix_tabs_command"));
         assert!(!plugin_block.contains("command_workspace_command"));
         assert!(plugin_block.contains(
             "/runtime/libexec/yazelix_zellij_bar_widget codex --display quota --periods 5h,week"
