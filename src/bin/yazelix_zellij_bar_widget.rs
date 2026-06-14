@@ -15,7 +15,7 @@ fn main() {
 fn run(args: Vec<String>) -> Result<String, String> {
     let Some((command, rest)) = args.split_first() else {
         return Err(
-            "expected command: claude, codex, cpu, opencode_go, ram, version, or render-yazelix-runtime"
+            "expected command: claude, codex, cpu, opencode_go, ram, tabs, version, or render-yazelix-runtime"
                 .to_string(),
         );
     };
@@ -24,6 +24,7 @@ fn run(args: Vec<String>) -> Result<String, String> {
         "codex" => run_codex_usage(rest),
         "opencode_go" => run_opencode_go_usage(rest),
         "render-yazelix-runtime" => run_render_yazelix_runtime(rest),
+        "tabs" => run_tabs(rest),
         "version" => run_version(rest),
         "cpu" if rest.is_empty() => Ok(yazelix_zellij_bar::current_cpu_usage_widget_text()),
         "ram" if rest.is_empty() => Ok(yazelix_zellij_bar::current_ram_usage_widget_text()),
@@ -102,6 +103,72 @@ fn run_render_yazelix_runtime(args: &[String]) -> Result<String, String> {
         plugin_block,
     })
     .map_err(|error| format!("failed to encode Yazelix runtime bar render: {error}"))
+}
+
+fn run_tabs(args: &[String]) -> Result<String, String> {
+    let mut cache_path = env::var_os("YAZELIX_STATUS_BAR_CACHE_PATH").map(std::path::PathBuf::from);
+    let mut mode = yazelix_zellij_bar::TAB_LABEL_MODE_FULL.to_string();
+    let mut appearance = yazelix_zellij_bar::APPEARANCE_MODE_DARK.to_string();
+
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--cache" => {
+                cache_path = Some(std::path::PathBuf::from(
+                    iter.next()
+                        .ok_or_else(|| "--cache requires a value".to_string())?,
+                ));
+            }
+            "--mode" => {
+                mode = iter
+                    .next()
+                    .ok_or_else(|| "--mode requires a value".to_string())?
+                    .to_string();
+            }
+            "--appearance" => {
+                appearance = iter
+                    .next()
+                    .ok_or_else(|| "--appearance requires a value".to_string())?
+                    .to_string();
+            }
+            other => return Err(format!("unknown tabs argument: {other}")),
+        }
+    }
+
+    let Some(cache_path) = cache_path else {
+        return Ok(String::new());
+    };
+    if !cache_path.is_file() {
+        return Ok(String::new());
+    }
+
+    let cache = std::fs::read_to_string(&cache_path).map_err(|error| {
+        format!(
+            "failed to read status-bar cache at {}: {error}",
+            cache_path.display()
+        )
+    })?;
+    let cache: serde_json::Value = serde_json::from_str(&cache).map_err(|error| {
+        format!(
+            "failed to parse status-bar cache at {}: {error}",
+            cache_path.display()
+        )
+    })?;
+    let include_names = match mode.as_str() {
+        yazelix_zellij_bar::TAB_LABEL_MODE_FULL => true,
+        yazelix_zellij_bar::TAB_LABEL_MODE_COMPACT => false,
+        _ => return Err(format!("unsupported tabs mode: {mode}")),
+    };
+
+    yazelix_zellij_bar::render_status_cache_tab_strip_widget(
+        &cache,
+        &yazelix_zellij_bar::StatusCacheTabStripRenderOptions {
+            include_names,
+            appearance_mode: appearance,
+            busy_frame: unix_time_seconds(),
+        },
+    )
+    .map_err(|error| format!("failed to render status-cache tabs: {}", error.code()))
 }
 
 fn run_claude_usage(args: &[String]) -> Result<String, String> {
@@ -416,11 +483,70 @@ mod tests {
         ));
         assert!(plugin_block.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
         assert!(plugin_block.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
+        assert!(plugin_block.contains(r#"format_left   "{mode} {command_yazelix_tabs}""#));
+        assert!(plugin_block.contains(
+            r#"command_yazelix_tabs_command "/runtime/libexec/yazelix_zellij_bar_widget tabs --appearance dark --mode compact""#
+        ));
+        assert!(plugin_block.contains(r#"command_yazelix_tabs_interval "1""#));
         assert!(!plugin_block.contains("command_workspace_command"));
         assert!(plugin_block.contains(
             "/runtime/libexec/yazelix_zellij_bar_widget codex --display quota --periods 5h,week"
         ));
         assert!(plugin_block.contains("/runtime/libexec/yazelix_zellij_bar_widget cpu"));
+    }
+
+    // Defends: the integrated tab-strip command reads the same window-local status cache as the existing bar widgets.
+    #[test]
+    fn tabs_command_renders_status_cache_activity_snapshot() {
+        let cache_dir = unique_test_dir("yazelix-zellij-bar-tabs-cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let cache_path = cache_dir.join("status_bar_cache.json");
+        std::fs::write(
+            &cache_path,
+            serde_json::json!({
+                "schema_version": 1,
+                "status_bus": {
+                    "schema_version": 1,
+                    "active_tab_position": 1
+                },
+                "tab_activity": {
+                    "schema_version": 1,
+                    "tabs": [
+                        {
+                            "tab_id": 10,
+                            "tab_position": 0,
+                            "base_name": "editor",
+                            "activity_state": "idle"
+                        },
+                        {
+                            "tab_id": 20,
+                            "tab_position": 1,
+                            "base_name": "agent",
+                            "activity_state": "alert"
+                        }
+                    ]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let output = run(vec![
+            "tabs".into(),
+            "--cache".into(),
+            cache_path.to_string_lossy().into_owned(),
+            "--mode".into(),
+            "compact".into(),
+            "--appearance".into(),
+            "dark".into(),
+        ])
+        .unwrap();
+
+        assert!(output.contains("#[fg=#ffff00][1]"));
+        assert!(output.contains("#[bg=#ff6600,fg=#000000,bold][2]"));
+        assert!(output.contains("#[bg=#ff0088,fg=#ffffff,bold][!]"));
+        assert!(!output.contains("agent"));
+        let _ = std::fs::remove_dir_all(cache_dir);
     }
 
     // Defends: integrated Yazelix version display reads the packaged runtime identity, not removed Nushell constants.

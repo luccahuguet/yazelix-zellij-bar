@@ -24,6 +24,7 @@ pub const COMMAND_OPENCODE_GO_USAGE: &str = "{command_opencode_go_usage}";
 pub const COMMAND_CPU: &str = "{command_cpu}";
 pub const COMMAND_RAM: &str = "{command_ram}";
 pub const COMMAND_VERSION: &str = "{command_version}";
+pub const COMMAND_YAZELIX_TABS: &str = "{command_yazelix_tabs}";
 pub const TAB_LABEL_MODE_FULL: &str = "full";
 pub const TAB_LABEL_MODE_COMPACT: &str = "compact";
 
@@ -59,6 +60,7 @@ const RUNTIME_ZJSTATUS_PLUGIN_URL_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_ZJSTATU
 const RUNTIME_WIDGET_TRAY_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_WIDGET_TRAY__";
 const RUNTIME_CUSTOM_TEXT_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CUSTOM_TEXT__";
 const RUNTIME_APPEARANCE_MODE_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_APPEARANCE_MODE__";
+const RUNTIME_TAB_LABEL_MODE_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_TAB_LABEL_MODE__";
 const RUNTIME_TAB_LABELS_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_TAB_LABELS__";
 const RUNTIME_TAB_RENAME_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_TAB_RENAME__";
 const RUNTIME_FLOATING_INDICATOR_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_FLOATING_INDICATOR__";
@@ -121,6 +123,8 @@ pub struct TabLabelFormats {
 pub const TAB_ACTIVITY_LABEL_STATE_IDLE: &str = "idle";
 pub const TAB_ACTIVITY_LABEL_STATE_BUSY: &str = "busy";
 pub const TAB_ACTIVITY_LABEL_STATE_ALERT: &str = "alert";
+pub const TAB_ACTIVITY_BUSY_ANIMATION_FRAMES: u64 = 3;
+pub const INTEGRATED_TAB_DISPLAY_COUNT: usize = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -183,6 +187,21 @@ pub fn render_tab_activity_marker(state: TabActivityLabelState) -> &'static str 
     }
 }
 
+pub fn render_animated_tab_activity_marker(
+    state: TabActivityLabelState,
+    busy_frame: u64,
+) -> &'static str {
+    match state {
+        TabActivityLabelState::Idle => "",
+        TabActivityLabelState::Busy => match busy_frame % TAB_ACTIVITY_BUSY_ANIMATION_FRAMES {
+            0 => "[.  ]",
+            1 => "[.. ]",
+            _ => "[...]",
+        },
+        TabActivityLabelState::Alert => "[!]",
+    }
+}
+
 pub fn render_tab_activity_name(base_name: &str, state: TabActivityLabelState) -> String {
     let marker = render_tab_activity_marker(state);
     if marker.is_empty() {
@@ -206,10 +225,416 @@ pub fn render_tab_activity_label(request: &TabActivityLabelRequest<'_>) -> Strin
     format!("[{}] {suffix}", request.index)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeTabStripTab {
+    pub position: usize,
+    pub base_name: String,
+    pub active: bool,
+    #[serde(default)]
+    pub activity_state: TabActivityLabelState,
+    #[serde(default)]
+    pub is_fullscreen_active: bool,
+    #[serde(default)]
+    pub is_sync_panes_active: bool,
+    #[serde(default)]
+    pub has_floating_panes: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeTabStripRequest {
+    pub tabs: Vec<NativeTabStripTab>,
+    pub include_names: bool,
+    pub busy_frame: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeTabStripSegmentRole {
+    ActiveTab,
+    NormalTab,
+    BusyActivity,
+    AlertActivity,
+    Indicator,
+    Truncation,
+    Separator,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeTabStripSegment {
+    pub text: String,
+    pub role: NativeTabStripSegmentRole,
+    pub tab_position: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeTabStripRender {
+    pub plain_text: String,
+    pub segments: Vec<NativeTabStripSegment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusCacheTabStripRenderOptions {
+    pub include_names: bool,
+    pub appearance_mode: String,
+    pub busy_frame: u64,
+}
+
+pub fn render_native_tab_strip(request: &NativeTabStripRequest) -> NativeTabStripRender {
+    let mut tabs = request.tabs.clone();
+    tabs.sort_by_key(|tab| tab.position);
+    render_ordered_native_tab_strip_tabs(&tabs, request.include_names, request.busy_frame)
+}
+
+pub fn render_native_tab_strip_with_limit(
+    request: &NativeTabStripRequest,
+    max_visible_tabs: usize,
+) -> NativeTabStripRender {
+    let mut tabs = request.tabs.clone();
+    tabs.sort_by_key(|tab| tab.position);
+    let visible_tabs = visible_native_tab_strip_tabs(&tabs, max_visible_tabs);
+
+    let mut segments = Vec::new();
+    if visible_tabs.hidden_before > 0 {
+        push_native_tab_strip_segment(
+            &mut segments,
+            format!("< +{} ...", visible_tabs.hidden_before),
+            NativeTabStripSegmentRole::Truncation,
+            None,
+        );
+    }
+    if visible_tabs.hidden_before > 0 && !visible_tabs.tabs.is_empty() {
+        push_native_tab_strip_segment(
+            &mut segments,
+            " ",
+            NativeTabStripSegmentRole::Separator,
+            None,
+        );
+    }
+    append_native_tab_strip_tabs(
+        &mut segments,
+        &visible_tabs.tabs,
+        request.include_names,
+        request.busy_frame,
+    );
+    if visible_tabs.hidden_after > 0 && !visible_tabs.tabs.is_empty() {
+        push_native_tab_strip_segment(
+            &mut segments,
+            " ",
+            NativeTabStripSegmentRole::Separator,
+            None,
+        );
+    }
+    if visible_tabs.hidden_after > 0 {
+        push_native_tab_strip_segment(
+            &mut segments,
+            format!("... +{} >", visible_tabs.hidden_after),
+            NativeTabStripSegmentRole::Truncation,
+            None,
+        );
+    }
+
+    native_tab_strip_render_from_segments(segments)
+}
+
+fn render_ordered_native_tab_strip_tabs(
+    tabs: &[NativeTabStripTab],
+    include_names: bool,
+    busy_frame: u64,
+) -> NativeTabStripRender {
+    let mut segments = Vec::new();
+    append_native_tab_strip_tabs(&mut segments, tabs, include_names, busy_frame);
+    native_tab_strip_render_from_segments(segments)
+}
+
+fn append_native_tab_strip_tabs(
+    segments: &mut Vec<NativeTabStripSegment>,
+    tabs: &[NativeTabStripTab],
+    include_names: bool,
+    busy_frame: u64,
+) {
+    for (index, tab) in tabs.iter().enumerate() {
+        if index > 0 {
+            push_native_tab_strip_segment(
+                segments,
+                " ",
+                NativeTabStripSegmentRole::Separator,
+                None,
+            );
+        }
+
+        render_native_tab_strip_tab(segments, tab, include_names, busy_frame);
+    }
+}
+
+fn native_tab_strip_render_from_segments(
+    segments: Vec<NativeTabStripSegment>,
+) -> NativeTabStripRender {
+    let plain_text = segments
+        .iter()
+        .map(|segment| segment.text.as_str())
+        .collect::<String>();
+    NativeTabStripRender {
+        plain_text,
+        segments,
+    }
+}
+
+struct VisibleNativeTabStripTabs {
+    tabs: Vec<NativeTabStripTab>,
+    hidden_before: usize,
+    hidden_after: usize,
+}
+
+fn visible_native_tab_strip_tabs(
+    tabs: &[NativeTabStripTab],
+    max_visible_tabs: usize,
+) -> VisibleNativeTabStripTabs {
+    if max_visible_tabs == 0 {
+        return VisibleNativeTabStripTabs {
+            tabs: Vec::new(),
+            hidden_before: 0,
+            hidden_after: tabs.len(),
+        };
+    }
+    if tabs.len() <= max_visible_tabs {
+        return VisibleNativeTabStripTabs {
+            tabs: tabs.to_vec(),
+            hidden_before: 0,
+            hidden_after: 0,
+        };
+    }
+
+    let active_index = tabs.iter().position(|tab| tab.active).unwrap_or(0);
+    let mut start = active_index.saturating_sub(max_visible_tabs / 2);
+    if start + max_visible_tabs > tabs.len() {
+        start = tabs.len() - max_visible_tabs;
+    }
+    let end = start + max_visible_tabs;
+
+    VisibleNativeTabStripTabs {
+        tabs: tabs[start..end].to_vec(),
+        hidden_before: start,
+        hidden_after: tabs.len() - end,
+    }
+}
+
+fn render_native_tab_strip_tab(
+    segments: &mut Vec<NativeTabStripSegment>,
+    tab: &NativeTabStripTab,
+    include_name: bool,
+    busy_frame: u64,
+) {
+    let tab_role = if tab.active {
+        NativeTabStripSegmentRole::ActiveTab
+    } else {
+        NativeTabStripSegmentRole::NormalTab
+    };
+    let tab_position = Some(tab.position);
+
+    push_native_tab_strip_segment(
+        segments,
+        format!("[{}]", tab.position + 1),
+        tab_role,
+        tab_position,
+    );
+
+    let activity_marker = render_animated_tab_activity_marker(tab.activity_state, busy_frame);
+    if !activity_marker.is_empty() {
+        push_native_tab_strip_segment(segments, " ", tab_role, tab_position);
+        push_native_tab_strip_segment(
+            segments,
+            activity_marker,
+            activity_marker_role(tab.activity_state),
+            tab_position,
+        );
+    }
+
+    if include_name && !tab.base_name.is_empty() {
+        push_native_tab_strip_segment(segments, " ", tab_role, tab_position);
+        push_native_tab_strip_segment(segments, tab.base_name.as_str(), tab_role, tab_position);
+    }
+
+    if tab.is_fullscreen_active {
+        push_native_tab_strip_segment(
+            segments,
+            " []",
+            NativeTabStripSegmentRole::Indicator,
+            tab_position,
+        );
+    }
+
+    if tab.is_sync_panes_active {
+        push_native_tab_strip_segment(
+            segments,
+            " <>",
+            NativeTabStripSegmentRole::Indicator,
+            tab_position,
+        );
+    }
+
+    if tab.has_floating_panes {
+        push_native_tab_strip_segment(
+            segments,
+            " \u{2b1a}",
+            NativeTabStripSegmentRole::Indicator,
+            tab_position,
+        );
+    }
+}
+
+fn activity_marker_role(state: TabActivityLabelState) -> NativeTabStripSegmentRole {
+    match state {
+        TabActivityLabelState::Alert => NativeTabStripSegmentRole::AlertActivity,
+        TabActivityLabelState::Busy => NativeTabStripSegmentRole::BusyActivity,
+        TabActivityLabelState::Idle => NativeTabStripSegmentRole::NormalTab,
+    }
+}
+
+fn push_native_tab_strip_segment(
+    segments: &mut Vec<NativeTabStripSegment>,
+    text: impl Into<String>,
+    role: NativeTabStripSegmentRole,
+    tab_position: Option<usize>,
+) {
+    segments.push(NativeTabStripSegment {
+        text: text.into(),
+        role,
+        tab_position,
+    });
+}
+
+pub fn render_status_cache_tab_strip_widget(
+    cache: &serde_json::Value,
+    options: &StatusCacheTabStripRenderOptions,
+) -> Result<String, BarRenderError> {
+    let request = native_tab_strip_request_from_status_cache(cache, options)?;
+    let rendered = render_native_tab_strip_with_limit(&request, INTEGRATED_TAB_DISPLAY_COUNT);
+    Ok(render_native_tab_strip_as_zjstatus_markup(
+        &rendered,
+        bar_style_for_appearance(&options.appearance_mode),
+    ))
+}
+
+fn native_tab_strip_request_from_status_cache(
+    cache: &serde_json::Value,
+    options: &StatusCacheTabStripRenderOptions,
+) -> Result<NativeTabStripRequest, BarRenderError> {
+    let tab_activity = cache
+        .get("tab_activity")
+        .ok_or_else(|| invalid_status_cache("missing tab_activity"))?;
+    if tab_activity
+        .get("schema_version")
+        .and_then(serde_json::Value::as_i64)
+        != Some(1)
+    {
+        return Err(invalid_status_cache(
+            "unsupported tab_activity schema_version",
+        ));
+    }
+
+    let active_tab_position = cache
+        .pointer("/status_bus/active_tab_position")
+        .and_then(serde_json::Value::as_u64)
+        .map(|position| position as usize);
+    let tabs = tab_activity
+        .get("tabs")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| invalid_status_cache("missing tab_activity tabs"))?
+        .iter()
+        .map(|tab| native_tab_from_status_cache(tab, active_tab_position))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(NativeTabStripRequest {
+        tabs,
+        include_names: options.include_names,
+        busy_frame: options.busy_frame,
+    })
+}
+
+fn native_tab_from_status_cache(
+    tab: &serde_json::Value,
+    active_tab_position: Option<usize>,
+) -> Result<NativeTabStripTab, BarRenderError> {
+    let position = tab
+        .get("tab_position")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| invalid_status_cache("missing tab_position"))? as usize;
+    let activity_state = tab
+        .get("activity_state")
+        .and_then(serde_json::Value::as_str)
+        .and_then(TabActivityLabelState::from_state_token)
+        .ok_or_else(|| invalid_status_cache("invalid activity_state"))?;
+
+    Ok(NativeTabStripTab {
+        position,
+        base_name: tab
+            .get("base_name")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| invalid_status_cache("missing base_name"))?
+            .to_string(),
+        active: tab
+            .get("active")
+            .and_then(serde_json::Value::as_bool)
+            .or_else(|| active_tab_position.map(|active| active == position))
+            .unwrap_or(false),
+        activity_state,
+        is_fullscreen_active: tab
+            .get("is_fullscreen_active")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        is_sync_panes_active: tab
+            .get("is_sync_panes_active")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        has_floating_panes: tab
+            .get("has_floating_panes")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+fn render_native_tab_strip_as_zjstatus_markup(
+    rendered: &NativeTabStripRender,
+    style: &BarStyle,
+) -> String {
+    rendered
+        .segments
+        .iter()
+        .map(|segment| {
+            format!(
+                "{}{}",
+                native_tab_strip_segment_style(segment.role, style),
+                segment.text
+            )
+        })
+        .collect()
+}
+
+fn native_tab_strip_segment_style(
+    role: NativeTabStripSegmentRole,
+    style: &BarStyle,
+) -> &'static str {
+    match role {
+        NativeTabStripSegmentRole::ActiveTab => style.tab_active,
+        NativeTabStripSegmentRole::NormalTab => style.tab_normal,
+        NativeTabStripSegmentRole::BusyActivity => style.tab_truncate,
+        NativeTabStripSegmentRole::AlertActivity => style.mode_scroll,
+        NativeTabStripSegmentRole::Indicator => style.tab_normal,
+        NativeTabStripSegmentRole::Truncation => style.tab_truncate,
+        NativeTabStripSegmentRole::Separator => style.tab_normal,
+    }
+}
+
+fn invalid_status_cache(reason: impl Into<String>) -> BarRenderError {
+    BarRenderError::InvalidStatusCache {
+        reason: reason.into(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BarRenderError {
     InvalidWidgetTrayEntry { entry: String },
     InvalidTabLabelMode { mode: String },
+    InvalidStatusCache { reason: String },
     UnresolvedRuntimePresetPlaceholder { placeholder: String },
 }
 
@@ -218,6 +643,7 @@ impl BarRenderError {
         match self {
             Self::InvalidWidgetTrayEntry { .. } => "invalid_widget_tray_entry",
             Self::InvalidTabLabelMode { .. } => "invalid_tab_label_mode",
+            Self::InvalidStatusCache { .. } => "invalid_status_cache",
             Self::UnresolvedRuntimePresetPlaceholder { .. } => {
                 "unresolved_runtime_preset_placeholder"
             }
@@ -872,6 +1298,10 @@ pub fn render_yazelix_runtime_plugin_block(
         (
             RUNTIME_APPEARANCE_MODE_PLACEHOLDER,
             escape_kdl_string(appearance_mode),
+        ),
+        (
+            RUNTIME_TAB_LABEL_MODE_PLACEHOLDER,
+            escape_kdl_string(&config.tab_label_mode),
         ),
         (
             RUNTIME_TAB_LABELS_PLACEHOLDER,
@@ -3321,6 +3751,244 @@ fi
             }),
             "[2]"
         );
+    }
+
+    // Defends: the native tab strip can animate busy activity without changing label width between frames.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn renders_native_tab_strip_with_fixed_width_busy_animation() {
+        let request = NativeTabStripRequest {
+            include_names: true,
+            busy_frame: 0,
+            tabs: vec![
+                NativeTabStripTab {
+                    position: 1,
+                    base_name: "agent".to_string(),
+                    active: false,
+                    activity_state: TabActivityLabelState::Busy,
+                    is_fullscreen_active: false,
+                    is_sync_panes_active: false,
+                    has_floating_panes: false,
+                },
+                NativeTabStripTab {
+                    position: 0,
+                    base_name: "editor".to_string(),
+                    active: true,
+                    activity_state: TabActivityLabelState::Idle,
+                    is_fullscreen_active: false,
+                    is_sync_panes_active: false,
+                    has_floating_panes: false,
+                },
+            ],
+        };
+
+        let first_frame = render_native_tab_strip(&request);
+        let third_frame = render_native_tab_strip(&NativeTabStripRequest {
+            busy_frame: 2,
+            ..request
+        });
+
+        assert_eq!(first_frame.plain_text, "[1] editor [2] [.  ] agent");
+        assert_eq!(third_frame.plain_text, "[1] editor [2] [...] agent");
+        assert_eq!(
+            first_frame.plain_text.chars().count(),
+            third_frame.plain_text.chars().count()
+        );
+    }
+
+    // Defends: compact native tabs can show activity markers even when tab names are hidden.
+    // Strength: defect=2 behavior=2 resilience=1 cost=1 uniqueness=2 total=8/10
+    #[test]
+    fn renders_native_compact_tab_strip_without_losing_activity_state() {
+        let rendered = render_native_tab_strip(&NativeTabStripRequest {
+            include_names: false,
+            busy_frame: 1,
+            tabs: vec![
+                NativeTabStripTab {
+                    position: 0,
+                    base_name: "editor".to_string(),
+                    active: true,
+                    activity_state: TabActivityLabelState::Idle,
+                    is_fullscreen_active: false,
+                    is_sync_panes_active: false,
+                    has_floating_panes: false,
+                },
+                NativeTabStripTab {
+                    position: 1,
+                    base_name: "agent".to_string(),
+                    active: false,
+                    activity_state: TabActivityLabelState::Busy,
+                    is_fullscreen_active: false,
+                    is_sync_panes_active: false,
+                    has_floating_panes: false,
+                },
+                NativeTabStripTab {
+                    position: 2,
+                    base_name: "build".to_string(),
+                    active: false,
+                    activity_state: TabActivityLabelState::Alert,
+                    is_fullscreen_active: false,
+                    is_sync_panes_active: false,
+                    has_floating_panes: false,
+                },
+            ],
+        });
+
+        assert_eq!(rendered.plain_text, "[1] [2] [.. ] [3] [!]");
+        assert!(!rendered.plain_text.contains("agent"));
+        assert!(!rendered.plain_text.contains("build"));
+    }
+
+    // Regression: replacing zjstatus {tabs} must preserve bounded tab display around the active tab.
+    // Strength: defect=2 behavior=2 resilience=1 cost=1 uniqueness=2 total=8/10
+    #[test]
+    fn renders_limited_native_tab_strip_around_active_tab() {
+        let rendered = render_native_tab_strip_with_limit(
+            &NativeTabStripRequest {
+                include_names: false,
+                busy_frame: 0,
+                tabs: (0..8)
+                    .map(|position| NativeTabStripTab {
+                        position,
+                        base_name: format!("tab-{position}"),
+                        active: position == 5,
+                        activity_state: TabActivityLabelState::Idle,
+                        is_fullscreen_active: false,
+                        is_sync_panes_active: false,
+                        has_floating_panes: false,
+                    })
+                    .collect(),
+            },
+            4,
+        );
+
+        assert_eq!(rendered.plain_text, "< +3 ... [4] [5] [6] [7] ... +1 >");
+        assert!(!rendered.plain_text.contains("[1]"));
+        assert!(!rendered.plain_text.contains("[8]"));
+        assert!(
+            rendered
+                .segments
+                .iter()
+                .any(|segment| segment.role == NativeTabStripSegmentRole::Truncation)
+        );
+    }
+
+    // Defends: native tab-strip segments retain tab ownership and roles for future styling and click handling.
+    // Strength: defect=2 behavior=2 resilience=1 cost=1 uniqueness=2 total=8/10
+    #[test]
+    fn native_tab_strip_segments_preserve_roles_and_tab_positions() {
+        let rendered = render_native_tab_strip(&NativeTabStripRequest {
+            include_names: true,
+            busy_frame: 2,
+            tabs: vec![NativeTabStripTab {
+                position: 3,
+                base_name: "agent".to_string(),
+                active: true,
+                activity_state: TabActivityLabelState::Alert,
+                is_fullscreen_active: true,
+                is_sync_panes_active: true,
+                has_floating_panes: true,
+            }],
+        });
+
+        assert_eq!(rendered.plain_text, "[4] [!] agent [] <> \u{2b1a}");
+        assert_eq!(
+            rendered
+                .segments
+                .iter()
+                .map(|segment| (segment.text.as_str(), segment.role, segment.tab_position))
+                .collect::<Vec<_>>(),
+            vec![
+                ("[4]", NativeTabStripSegmentRole::ActiveTab, Some(3)),
+                (" ", NativeTabStripSegmentRole::ActiveTab, Some(3)),
+                ("[!]", NativeTabStripSegmentRole::AlertActivity, Some(3)),
+                (" ", NativeTabStripSegmentRole::ActiveTab, Some(3)),
+                ("agent", NativeTabStripSegmentRole::ActiveTab, Some(3)),
+                (" []", NativeTabStripSegmentRole::Indicator, Some(3)),
+                (" <>", NativeTabStripSegmentRole::Indicator, Some(3)),
+                (" \u{2b1a}", NativeTabStripSegmentRole::Indicator, Some(3)),
+            ]
+        );
+    }
+
+    // Defends: integrated tab-strip rendering uses the existing window-local status cache as its state bus.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn renders_tab_strip_from_status_cache_activity_snapshot() {
+        let cache = serde_json::json!({
+            "schema_version": 1,
+            "status_bus": {
+                "schema_version": 1,
+                "active_tab_position": 0
+            },
+            "tab_activity": {
+                "schema_version": 1,
+                "tabs": [
+                    {
+                        "tab_id": 10,
+                        "tab_position": 0,
+                        "base_name": "editor",
+                        "activity_state": "idle",
+                        "active": true
+                    },
+                    {
+                        "tab_id": 20,
+                        "tab_position": 1,
+                        "base_name": "agent",
+                        "activity_state": "busy",
+                        "is_fullscreen_active": true
+                    },
+                    {
+                        "tab_id": 30,
+                        "tab_position": 2,
+                        "base_name": "build",
+                        "activity_state": "alert",
+                        "has_floating_panes": true
+                    }
+                ]
+            }
+        });
+
+        let rendered = render_status_cache_tab_strip_widget(
+            &cache,
+            &StatusCacheTabStripRenderOptions {
+                include_names: false,
+                appearance_mode: APPEARANCE_MODE_DARK.to_string(),
+                busy_frame: 1,
+            },
+        )
+        .unwrap();
+
+        assert!(rendered.contains("#[bg=#ff6600,fg=#000000,bold][1]"));
+        assert!(rendered.contains("#[fg=#ff6600,bold][.. ]"));
+        assert!(rendered.contains("#[bg=#ff0088,fg=#ffffff,bold][!]"));
+        assert!(rendered.contains("#[fg=#ffff00] []"));
+        assert!(rendered.contains("#[fg=#ffff00] \u{2b1a}"));
+        assert!(!rendered.contains("agent"));
+        assert!(!rendered.contains("build"));
+    }
+
+    // Regression: stale or malformed status-cache tab activity must fail visibly instead of silently rendering incorrect tabs.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn rejects_malformed_status_cache_tab_activity() {
+        let error = render_status_cache_tab_strip_widget(
+            &serde_json::json!({
+                "schema_version": 1,
+                "tab_activity": {
+                    "schema_version": 99,
+                    "tabs": []
+                }
+            }),
+            &StatusCacheTabStripRenderOptions {
+                include_names: true,
+                appearance_mode: APPEARANCE_MODE_DARK.to_string(),
+                busy_frame: 0,
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code(), "invalid_status_cache");
     }
 
     // Regression: unsupported tab label modes fail fast instead of emitting broken zjstatus KDL.
