@@ -2386,7 +2386,7 @@ fn render_widget_with_style(
 ) -> Result<String, BarRenderError> {
     match widget {
         WIDGET_EDITOR => Ok(format!(" {}[🖹 {}]", style.widget, request.editor_label)),
-        WIDGET_SHELL => Ok(format!(" {}[❯ {}]", style.widget, request.shell_label)),
+        WIDGET_SHELL => Ok(format!(" {}[❯{}]", style.widget, request.shell_label)),
         WIDGET_TERM => Ok(format!(" {}[🖵 {}]", style.widget, request.terminal_label)),
         WIDGET_WORKSPACE => Ok(PIPE_WORKSPACE.to_string()),
         WIDGET_CLAUDE_USAGE => Ok(COMMAND_CLAUDE_USAGE.to_string()),
@@ -2501,7 +2501,7 @@ mod tests {
 
         assert_eq!(
             rendered,
-            " #[fg=#00ff88,bold][🖹 hx] #[fg=#00ff88,bold][❯ nu] #[fg=#00ff88,bold][🖵 ghostty]{command_codex_usage}{command_cpu}{command_ram}"
+            " #[fg=#00ff88,bold][🖹 hx] #[fg=#00ff88,bold][❯nu] #[fg=#00ff88,bold][🖵 ghostty]{command_codex_usage}{command_cpu}{command_ram}"
         );
     }
 
@@ -2670,7 +2670,7 @@ MemAvailable:   250000 kB
 
         assert_eq!(
             rendered,
-            " #[fg=#00ff88,bold][🖹 hx]{pipe_workspace} #[fg=#00ff88,bold][❯ nu]"
+            " #[fg=#00ff88,bold][🖹 hx]{pipe_workspace} #[fg=#00ff88,bold][❯nu]"
         );
     }
 
