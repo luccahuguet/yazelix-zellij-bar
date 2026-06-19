@@ -79,6 +79,7 @@ const RUNTIME_OPENCODE_GO_USAGE_PERIODS_PLACEHOLDER: &str =
 const SYSTEM_USAGE_CACHE_SCHEMA_VERSION: u64 = 1;
 const SYSTEM_USAGE_CACHE_MAX_AGE_MILLIS: u64 = 5_000;
 const SYSTEM_USAGE_CACHE_REFRESH_GRACE_MILLIS: u64 = 30_000;
+const SYSTEM_USAGE_CACHE_LOCK_WAIT_PADDING_MILLIS: u64 = 50;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct YazelixRuntimeBarConfig {
@@ -1491,6 +1492,13 @@ fn refresh_system_usage_cache_if_needed(
     }
 
     let Some(_lock) = acquire_system_usage_cache_lock(cache_path) else {
+        if let Some(cache) = read_recent_system_usage_cache(cache_path, now_unix_millis) {
+            return Some(cache);
+        }
+        std::thread::sleep(
+            sysinfo::MINIMUM_CPU_UPDATE_INTERVAL
+                + std::time::Duration::from_millis(SYSTEM_USAGE_CACHE_LOCK_WAIT_PADDING_MILLIS),
+        );
         return read_recent_system_usage_cache(cache_path, now_unix_millis);
     };
     if let Some(cache) = read_fresh_system_usage_cache(cache_path, now_unix_millis) {
@@ -3449,6 +3457,41 @@ MemAvailable:   250000 kB
             system_usage_widget_text(&stale, SystemUsageWidget::Ram),
             "64%"
         );
+        drop(lock);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // Regression: the first simultaneous CPU/RAM widget pair should wait for the sampler owner instead of rendering unknown.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn system_usage_cache_lock_contention_waits_for_initial_sample() {
+        let dir = temp_test_dir("system_usage_cold_lock");
+        let path = dir.join("system_usage_cache_v1.json");
+
+        let lock = acquire_system_usage_cache_lock(&path).expect("lock");
+        let writer_path = path.clone();
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            let cache = SystemUsageCache {
+                schema_version: SYSTEM_USAGE_CACHE_SCHEMA_VERSION,
+                captured_unix_millis: 10_000,
+                cpu_percent: Some(37),
+                ram_percent: Some(64),
+            };
+            write_system_usage_cache(&writer_path, &cache).unwrap();
+        });
+
+        let sampled = refresh_system_usage_cache_if_needed(&path, 10_000).unwrap();
+        assert_eq!(
+            system_usage_widget_text(&sampled, SystemUsageWidget::Cpu),
+            "37%"
+        );
+        assert_eq!(
+            system_usage_widget_text(&sampled, SystemUsageWidget::Ram),
+            "64%"
+        );
+
+        writer.join().unwrap();
         drop(lock);
         let _ = std::fs::remove_dir_all(dir);
     }
