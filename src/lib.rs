@@ -78,6 +78,7 @@ const RUNTIME_OPENCODE_GO_USAGE_PERIODS_PLACEHOLDER: &str =
     "__YAZELIX_RUNTIME_OPENCODE_GO_USAGE_PERIODS__";
 const SYSTEM_USAGE_CACHE_SCHEMA_VERSION: u64 = 1;
 const SYSTEM_USAGE_CACHE_MAX_AGE_MILLIS: u64 = 5_000;
+const SYSTEM_USAGE_CACHE_REFRESH_GRACE_MILLIS: u64 = 30_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct YazelixRuntimeBarConfig {
@@ -1490,14 +1491,14 @@ fn refresh_system_usage_cache_if_needed(
     }
 
     let Some(_lock) = acquire_system_usage_cache_lock(cache_path) else {
-        return read_fresh_system_usage_cache(cache_path, now_unix_millis);
+        return read_recent_system_usage_cache(cache_path, now_unix_millis);
     };
     if let Some(cache) = read_fresh_system_usage_cache(cache_path, now_unix_millis) {
         return Some(cache);
     }
 
     let cache = sample_system_usage_cache(now_unix_millis);
-    write_system_usage_cache(cache_path, &cache).ok()?;
+    let _ = write_system_usage_cache(cache_path, &cache);
     Some(cache)
 }
 
@@ -1524,9 +1525,28 @@ fn read_fresh_system_usage_cache(
     path: &std::path::Path,
     now_unix_millis: u64,
 ) -> Option<SystemUsageCache> {
+    read_system_usage_cache_with_max_age(path, now_unix_millis, SYSTEM_USAGE_CACHE_MAX_AGE_MILLIS)
+}
+
+fn read_recent_system_usage_cache(
+    path: &std::path::Path,
+    now_unix_millis: u64,
+) -> Option<SystemUsageCache> {
+    read_system_usage_cache_with_max_age(
+        path,
+        now_unix_millis,
+        SYSTEM_USAGE_CACHE_MAX_AGE_MILLIS + SYSTEM_USAGE_CACHE_REFRESH_GRACE_MILLIS,
+    )
+}
+
+fn read_system_usage_cache_with_max_age(
+    path: &std::path::Path,
+    now_unix_millis: u64,
+    max_age_millis: u64,
+) -> Option<SystemUsageCache> {
     let cache = read_system_usage_cache(path)?;
     let age = now_unix_millis.checked_sub(cache.captured_unix_millis)?;
-    (age <= SYSTEM_USAGE_CACHE_MAX_AGE_MILLIS).then_some(cache)
+    (age <= max_age_millis).then_some(cache)
 }
 
 fn read_system_usage_cache(path: &std::path::Path) -> Option<SystemUsageCache> {
@@ -3405,10 +3425,10 @@ MemAvailable:   250000 kB
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    // Regression: stale cache data should not be served as fresh while another process owns refresh.
+    // Regression: simultaneous CPU/RAM widget refreshes should not blink to unknown while one process samples.
     // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
     #[test]
-    fn system_usage_cache_lock_contention_rejects_stale_values() {
+    fn system_usage_cache_lock_contention_serves_recent_stale_values() {
         let dir = temp_test_dir("system_usage_stale_lock");
         let path = dir.join("system_usage_cache_v1.json");
         let cache = SystemUsageCache {
@@ -3420,7 +3440,35 @@ MemAvailable:   250000 kB
         write_system_usage_cache(&path, &cache).unwrap();
 
         let lock = acquire_system_usage_cache_lock(&path).expect("lock");
-        assert!(refresh_system_usage_cache_if_needed(&path, 16_000).is_none());
+        let stale = refresh_system_usage_cache_if_needed(&path, 16_000).unwrap();
+        assert_eq!(
+            system_usage_widget_text(&stale, SystemUsageWidget::Cpu),
+            "37%"
+        );
+        assert_eq!(
+            system_usage_widget_text(&stale, SystemUsageWidget::Ram),
+            "64%"
+        );
+        drop(lock);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // Regression: abandoned refresh locks must not make arbitrarily old system-usage values look live.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn system_usage_cache_lock_contention_rejects_too_old_values() {
+        let dir = temp_test_dir("system_usage_too_old_lock");
+        let path = dir.join("system_usage_cache_v1.json");
+        let cache = SystemUsageCache {
+            schema_version: SYSTEM_USAGE_CACHE_SCHEMA_VERSION,
+            captured_unix_millis: 10_000,
+            cpu_percent: Some(37),
+            ram_percent: Some(64),
+        };
+        write_system_usage_cache(&path, &cache).unwrap();
+
+        let lock = acquire_system_usage_cache_lock(&path).expect("lock");
+        assert!(refresh_system_usage_cache_if_needed(&path, 46_000).is_none());
         drop(lock);
         let _ = std::fs::remove_dir_all(dir);
     }
