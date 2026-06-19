@@ -76,6 +76,8 @@ const RUNTIME_OPENCODE_GO_USAGE_DISPLAY_PLACEHOLDER: &str =
     "__YAZELIX_RUNTIME_OPENCODE_GO_USAGE_DISPLAY__";
 const RUNTIME_OPENCODE_GO_USAGE_PERIODS_PLACEHOLDER: &str =
     "__YAZELIX_RUNTIME_OPENCODE_GO_USAGE_PERIODS__";
+const SYSTEM_USAGE_CACHE_SCHEMA_VERSION: u64 = 1;
+const SYSTEM_USAGE_CACHE_MAX_AGE_MILLIS: u64 = 5_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct YazelixRuntimeBarConfig {
@@ -1430,29 +1432,187 @@ fn render_custom_text_segment_with_style(custom_text: &str, style: &BarStyle) ->
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SystemUsageWidget {
+    Cpu,
+    Ram,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SystemUsageCache {
+    schema_version: u64,
+    captured_unix_millis: u64,
+    cpu_percent: Option<u64>,
+    ram_percent: Option<u64>,
+}
+
+struct SystemUsageCacheLock {
+    path: std::path::PathBuf,
+}
+
+impl Drop for SystemUsageCacheLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 pub fn current_cpu_usage_widget_text() -> String {
-    let Some(before) = std::fs::read_to_string("/proc/stat")
-        .ok()
-        .and_then(|raw| parse_proc_stat_cpu_totals(&raw))
-    else {
-        return "??%".to_string();
-    };
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    let Some(after) = std::fs::read_to_string("/proc/stat")
-        .ok()
-        .and_then(|raw| parse_proc_stat_cpu_totals(&raw))
-    else {
-        return "??%".to_string();
-    };
-    format_percent(cpu_usage_percent_from_totals(before, after))
+    current_system_usage_widget_text(SystemUsageWidget::Cpu, current_unix_millis())
 }
 
 pub fn current_ram_usage_widget_text() -> String {
-    format_percent(
-        std::fs::read_to_string("/proc/meminfo")
-            .ok()
-            .and_then(|raw| ram_usage_percent_from_meminfo(&raw)),
-    )
+    current_system_usage_widget_text(SystemUsageWidget::Ram, current_unix_millis())
+}
+
+fn current_system_usage_widget_text(widget: SystemUsageWidget, now_unix_millis: u64) -> String {
+    let Some(cache_path) = system_usage_cache_path() else {
+        return system_usage_widget_text(&sample_system_usage_cache(now_unix_millis), widget);
+    };
+    refresh_system_usage_cache_if_needed(&cache_path, now_unix_millis)
+        .as_ref()
+        .map(|cache| system_usage_widget_text(cache, widget))
+        .unwrap_or_else(|| "??%".to_string())
+}
+
+fn current_unix_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or(0)
+}
+
+fn refresh_system_usage_cache_if_needed(
+    cache_path: &std::path::Path,
+    now_unix_millis: u64,
+) -> Option<SystemUsageCache> {
+    if let Some(cache) = read_fresh_system_usage_cache(cache_path, now_unix_millis) {
+        return Some(cache);
+    }
+
+    let Some(_lock) = acquire_system_usage_cache_lock(cache_path) else {
+        return read_fresh_system_usage_cache(cache_path, now_unix_millis);
+    };
+    if let Some(cache) = read_fresh_system_usage_cache(cache_path, now_unix_millis) {
+        return Some(cache);
+    }
+
+    let cache = sample_system_usage_cache(now_unix_millis);
+    write_system_usage_cache(cache_path, &cache).ok()?;
+    Some(cache)
+}
+
+fn acquire_system_usage_cache_lock(cache_path: &std::path::Path) -> Option<SystemUsageCacheLock> {
+    let lock_path = system_usage_cache_lock_path(cache_path);
+    std::fs::create_dir_all(lock_path.parent()?).ok()?;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lock_path)
+        .ok()?;
+    Some(SystemUsageCacheLock { path: lock_path })
+}
+
+fn system_usage_cache_lock_path(cache_path: &std::path::Path) -> std::path::PathBuf {
+    let file_name = cache_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("system_usage_cache.json");
+    cache_path.with_file_name(format!("{file_name}.lock"))
+}
+
+fn read_fresh_system_usage_cache(
+    path: &std::path::Path,
+    now_unix_millis: u64,
+) -> Option<SystemUsageCache> {
+    let cache = read_system_usage_cache(path)?;
+    let age = now_unix_millis.checked_sub(cache.captured_unix_millis)?;
+    (age <= SYSTEM_USAGE_CACHE_MAX_AGE_MILLIS).then_some(cache)
+}
+
+fn read_system_usage_cache(path: &std::path::Path) -> Option<SystemUsageCache> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let cache: SystemUsageCache = serde_json::from_str(&raw).ok()?;
+    (cache.schema_version == SYSTEM_USAGE_CACHE_SCHEMA_VERSION).then_some(cache)
+}
+
+fn write_system_usage_cache(
+    path: &std::path::Path,
+    cache: &SystemUsageCache,
+) -> Result<(), std::io::Error> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp_path = path.with_extension("json.tmp");
+    let encoded = serde_json::to_vec(cache).map_err(std::io::Error::other)?;
+    std::fs::write(&tmp_path, encoded)?;
+    std::fs::rename(tmp_path, path)
+}
+
+fn sample_system_usage_cache(now_unix_millis: u64) -> SystemUsageCache {
+    let mut system = sysinfo::System::new_with_specifics(
+        sysinfo::RefreshKind::nothing()
+            .with_cpu(sysinfo::CpuRefreshKind::everything())
+            .with_memory(sysinfo::MemoryRefreshKind::nothing().with_ram()),
+    );
+    std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+    system.refresh_cpu_all();
+    system.refresh_memory_specifics(sysinfo::MemoryRefreshKind::nothing().with_ram());
+    let cpu_percent = rounded_bounded_percent(system.global_cpu_usage() as f64);
+    let total_memory = system.total_memory();
+    let available_memory = system.available_memory();
+    let ram_percent = if total_memory == 0 || available_memory > total_memory {
+        None
+    } else {
+        Some(round_percent(total_memory - available_memory, total_memory))
+    };
+
+    SystemUsageCache {
+        schema_version: SYSTEM_USAGE_CACHE_SCHEMA_VERSION,
+        captured_unix_millis: now_unix_millis,
+        cpu_percent,
+        ram_percent,
+    }
+}
+
+fn rounded_bounded_percent(percent: f64) -> Option<u64> {
+    percent
+        .is_finite()
+        .then(|| percent.round().clamp(0.0, 100.0) as u64)
+}
+
+fn system_usage_widget_text(cache: &SystemUsageCache, widget: SystemUsageWidget) -> String {
+    match widget {
+        SystemUsageWidget::Cpu => format_percent(cache.cpu_percent),
+        SystemUsageWidget::Ram => format_percent(cache.ram_percent),
+    }
+}
+
+fn system_usage_cache_path() -> Option<std::path::PathBuf> {
+    status_bar_cache_path_from_env()
+        .and_then(|path| {
+            let state_dir = path.parent()?.parent()?.parent()?;
+            Some(state_dir.join("system_usage").join(format!(
+                "system_usage_cache_v{SYSTEM_USAGE_CACHE_SCHEMA_VERSION}.json"
+            )))
+        })
+        .or_else(default_system_usage_cache_path)
+}
+
+fn default_system_usage_cache_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("XDG_CACHE_HOME")
+        .map(std::path::PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .filter(|path| !path.as_os_str().is_empty())
+                .map(|home| home.join(".cache"))
+        })
+        .map(|cache_dir| {
+            cache_dir.join("yazelix_zellij_bar").join(format!(
+                "system_usage_cache_v{SYSTEM_USAGE_CACHE_SCHEMA_VERSION}.json"
+            ))
+        })
 }
 
 pub fn cpu_usage_percent_from_proc_stat(before: &str, after: &str) -> Option<u64> {
@@ -3201,6 +3361,68 @@ MemAvailable:   250000 kB
             ram_usage_percent_from_meminfo("MemTotal: 10 kB\nMemAvailable: 20 kB\n"),
             None
         );
+    }
+
+    // Defends: repeated CPU/RAM widget invocations can read one shared sampled value instead of resampling.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn system_usage_cache_serves_fresh_cpu_and_ram_values() {
+        let dir = temp_test_dir("system_usage_cache");
+        let path = dir.join("system_usage_cache_v1.json");
+        let cache = SystemUsageCache {
+            schema_version: SYSTEM_USAGE_CACHE_SCHEMA_VERSION,
+            captured_unix_millis: 10_000,
+            cpu_percent: Some(37),
+            ram_percent: Some(64),
+        };
+
+        write_system_usage_cache(&path, &cache).unwrap();
+
+        let fresh = read_fresh_system_usage_cache(&path, 12_000).unwrap();
+        assert_eq!(
+            system_usage_widget_text(&fresh, SystemUsageWidget::Cpu),
+            "37%"
+        );
+        assert_eq!(
+            system_usage_widget_text(&fresh, SystemUsageWidget::Ram),
+            "64%"
+        );
+        assert!(read_fresh_system_usage_cache(&path, 16_000).is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // Regression: concurrent command-widget bursts must let one process own sampler refresh.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn system_usage_cache_lock_is_exclusive() {
+        let dir = temp_test_dir("system_usage_lock");
+        let path = dir.join("system_usage_cache_v1.json");
+
+        let first = acquire_system_usage_cache_lock(&path).expect("first lock");
+        assert!(acquire_system_usage_cache_lock(&path).is_none());
+        drop(first);
+        assert!(acquire_system_usage_cache_lock(&path).is_some());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // Regression: stale cache data should not be served as fresh while another process owns refresh.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn system_usage_cache_lock_contention_rejects_stale_values() {
+        let dir = temp_test_dir("system_usage_stale_lock");
+        let path = dir.join("system_usage_cache_v1.json");
+        let cache = SystemUsageCache {
+            schema_version: SYSTEM_USAGE_CACHE_SCHEMA_VERSION,
+            captured_unix_millis: 10_000,
+            cpu_percent: Some(37),
+            ram_percent: Some(64),
+        };
+        write_system_usage_cache(&path, &cache).unwrap();
+
+        let lock = acquire_system_usage_cache_lock(&path).expect("lock");
+        assert!(refresh_system_usage_cache_if_needed(&path, 16_000).is_none());
+        drop(lock);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     // Regression: dynamic command placeholders must preserve stable spacing around safe widgets.

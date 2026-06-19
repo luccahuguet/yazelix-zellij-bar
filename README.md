@@ -61,7 +61,7 @@ The optional provider widgets only need their own upstream facts:
 
 - `codex_usage` and `claude_usage` use `tokenusage` when it is available on `PATH`
 - `opencode_go_usage` reads OpenCode Go SQLite databases from default locations or explicit `--db` paths
-- `cpu` and `ram` read Linux `/proc` directly
+- `cpu` and `ram` read a shared `sysinfo`-backed cache with a short freshness window
 
 None of those widget commands require Yazelix runtime paths, `yzx_control`, or a Yazelix session cache
 
@@ -129,7 +129,7 @@ layout {
 
 Replace the `zjstatus.wasm` path with the installed package path. If you install through Nix profiles, `nix profile list` shows the profile entry, and the installed files live under that package output
 
-Provider widgets maintain their own cache, lock, freshness, and error-backoff files under `$XDG_CACHE_HOME/yazelix_zellij_bar` or `$HOME/.cache/yazelix_zellij_bar`. Use `--cache` only when overriding the default. Yazelix may omit it because the full runtime exports `YAZELIX_STATUS_BAR_CACHE_PATH`
+Provider widgets maintain their own cache, lock, freshness, and error-backoff files under `$XDG_CACHE_HOME/yazelix_zellij_bar` or `$HOME/.cache/yazelix_zellij_bar`. CPU/RAM share one short-lived system-usage cache so command-widget bursts do not resample system metrics in every process. Use `--cache` only when overriding the default. Yazelix may omit it because the full runtime exports `YAZELIX_STATUS_BAR_CACHE_PATH`
 
 ## Standalone Fact Renderers
 
