@@ -3103,9 +3103,9 @@ fn render_widget_with_style(
     style: &BarStyle,
 ) -> Result<String, BarRenderError> {
     match widget {
-        WIDGET_EDITOR => Ok(format!(" {}[🖹 {}]", style.widget, request.editor_label)),
+        WIDGET_EDITOR => Ok(format!(" {}[ {}]", style.widget, request.editor_label)),
         WIDGET_SHELL => Ok(format!(" {}[❯{}]", style.widget, request.shell_label)),
-        WIDGET_TERM => Ok(format!(" {}[🖵 {}]", style.widget, request.terminal_label)),
+        WIDGET_TERM => Ok(format!(" {}[ {}]", style.widget, request.terminal_label)),
         WIDGET_WORKSPACE => Ok(PIPE_WORKSPACE.to_string()),
         WIDGET_CLAUDE_USAGE => Ok(COMMAND_CLAUDE_USAGE.to_string()),
         WIDGET_CODEX_USAGE => Ok(COMMAND_CODEX_USAGE.to_string()),
@@ -3219,7 +3219,7 @@ mod tests {
 
         assert_eq!(
             rendered,
-            " #[fg=#00ff88,bold][🖹 hx] #[fg=#00ff88,bold][❯nu] #[fg=#00ff88,bold][🖵 ghostty]{command_codex_usage}{command_cpu}{command_ram}"
+            " #[fg=#00ff88,bold][ hx] #[fg=#00ff88,bold][❯nu] #[fg=#00ff88,bold][ ghostty]{command_codex_usage}{command_cpu}{command_ram}"
         );
     }
 
@@ -3298,7 +3298,7 @@ mod tests {
         assert!(YAZELIX_RUNTIME_BAR_TEMPLATE.contains("pipe_workspace_format"));
         assert!(rendered.contains(r#"plugin location="file:/runtime/share/zjstatus.wasm" {"#));
         assert!(rendered.contains(
-            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][🖹 hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
+            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][ hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
         ));
         assert!(rendered.contains(r#"format_left   "{mode} {tabs}""#));
         assert!(rendered.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
@@ -3328,7 +3328,7 @@ mod tests {
         let rendered = render_yazelix_runtime_plugin_block(&config).unwrap();
 
         assert!(rendered.contains(
-            "format_right  \"#[fg=#7c3f97,bold]{session} #[fg=#2f7d32,bold][🖹 hx]{pipe_workspace}{command_cpu} #[fg=#9a5a00,bold][demo] #[fg=#1e66f5,bold]YZX {command_version} \" // {datetime}"
+            "format_right  \"#[fg=#7c3f97,bold]{session} #[fg=#2f7d32,bold][ hx]{pipe_workspace}{command_cpu} #[fg=#9a5a00,bold][demo] #[fg=#1e66f5,bold]YZX {command_version} \" // {datetime}"
         ));
         assert!(rendered.contains(r##"mode_normal  "#[bg=#cfe8d4,fg=#1f5f32,bold] NORMAL ""##));
         assert!(rendered.contains(
@@ -3525,7 +3525,7 @@ MemAvailable:   250000 kB
 
         assert_eq!(
             rendered,
-            " #[fg=#00ff88,bold][🖹 hx]{pipe_workspace} #[fg=#00ff88,bold][❯nu]"
+            " #[fg=#00ff88,bold][ hx]{pipe_workspace} #[fg=#00ff88,bold][❯nu]"
         );
     }
 
