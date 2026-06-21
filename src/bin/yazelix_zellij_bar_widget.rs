@@ -26,9 +26,8 @@ fn run(args: Vec<String>) -> Result<String, String> {
         "render-yazelix-runtime" => run_render_yazelix_runtime(rest),
         "tabs" => run_tabs(rest),
         "version" => run_version(rest),
-        "cpu" if rest.is_empty() => Ok(yazelix_zellij_bar::current_cpu_usage_widget_text()),
-        "ram" if rest.is_empty() => Ok(yazelix_zellij_bar::current_ram_usage_widget_text()),
-        "cpu" | "ram" => Err(format!("{command} accepts no arguments")),
+        "cpu" => run_cpu_usage(rest),
+        "ram" => run_ram_usage(rest),
         _ => Err(format!("unknown widget command: {command}")),
     }
 }
@@ -171,6 +170,78 @@ fn run_tabs(args: &[String]) -> Result<String, String> {
     .map_err(|error| format!("failed to render status-cache tabs: {}", error.code()))
 }
 
+#[derive(Debug, Clone)]
+struct WidgetCommandChrome {
+    frame: String,
+    separator: String,
+    first: bool,
+    configured: bool,
+}
+
+impl Default for WidgetCommandChrome {
+    fn default() -> Self {
+        Self {
+            frame: yazelix_zellij_bar::WIDGET_FRAME_NONE.to_string(),
+            separator: yazelix_zellij_bar::WIDGET_SEPARATOR_DOT.to_string(),
+            first: false,
+            configured: false,
+        }
+    }
+}
+
+impl WidgetCommandChrome {
+    fn configured(&self) -> bool {
+        self.configured
+    }
+}
+
+fn parse_widget_chrome_arg<'a>(
+    arg: &str,
+    iter: &mut std::slice::Iter<'a, String>,
+    chrome: &mut WidgetCommandChrome,
+) -> Result<bool, String> {
+    match arg {
+        "--widget-frame" => {
+            chrome.configured = true;
+            chrome.frame = iter
+                .next()
+                .ok_or_else(|| "--widget-frame requires a value".to_string())?
+                .to_string();
+            Ok(true)
+        }
+        "--widget-separator" => {
+            chrome.configured = true;
+            chrome.separator = iter
+                .next()
+                .ok_or_else(|| "--widget-separator requires a value".to_string())?
+                .to_string();
+            Ok(true)
+        }
+        "--widget-first" => {
+            chrome.configured = true;
+            chrome.first = parse_bool_arg("--widget-first", iter.next())?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn render_widget_command_segment(
+    body: String,
+    chrome: &WidgetCommandChrome,
+) -> Result<String, String> {
+    if !chrome.configured() {
+        return Ok(body);
+    }
+    yazelix_zellij_bar::render_configured_widget_segment(
+        &body,
+        &chrome.frame,
+        &chrome.separator,
+        chrome.first,
+    )
+    .map_err(|error| format!("invalid widget chrome: {}", error.code()))
+}
+
 fn run_claude_usage(args: &[String]) -> Result<String, String> {
     let mut cache_path = None;
     let mut display = yazelix_zellij_bar::AgentUsageDisplay::Both;
@@ -181,8 +252,12 @@ fn run_claude_usage(args: &[String]) -> Result<String, String> {
     let mut max_age_seconds = 600;
     let mut error_backoff_seconds = 1_800;
     let mut timeout_ms = 5_000;
+    let mut chrome = WidgetCommandChrome::default();
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
+        if parse_widget_chrome_arg(arg, &mut iter, &mut chrome)? {
+            continue;
+        }
         match arg.as_str() {
             "--cache" => {
                 cache_path = Some(std::path::PathBuf::from(
@@ -222,16 +297,23 @@ fn run_claude_usage(args: &[String]) -> Result<String, String> {
         .ok_or_else(|| {
             "claude usage: yazelix_zellij_bar_widget claude [--cache <path>] [--display quota|token|both] [--periods 5h,week]".to_string()
         })?;
-    yazelix_zellij_bar::claude_usage_widget_text(yazelix_zellij_bar::ClaudeUsageWidgetOptions {
+    let path_var = env::var_os("PATH");
+    let options = yazelix_zellij_bar::ClaudeUsageWidgetOptions {
         cache_path: &cache_path,
-        path_var: env::var_os("PATH").as_deref(),
+        path_var: path_var.as_deref(),
         now_unix_seconds: unix_time_seconds(),
         max_age_seconds,
         error_backoff_seconds,
         timeout: std::time::Duration::from_millis(timeout_ms),
         display,
         periods: &periods,
-    })
+    };
+    let text = if chrome.configured() {
+        yazelix_zellij_bar::claude_usage_widget_body_text(options)?
+    } else {
+        yazelix_zellij_bar::claude_usage_widget_text(options)?
+    };
+    render_widget_command_segment(text, &chrome)
 }
 
 fn run_codex_usage(args: &[String]) -> Result<String, String> {
@@ -244,8 +326,12 @@ fn run_codex_usage(args: &[String]) -> Result<String, String> {
     let mut max_age_seconds = 600;
     let mut error_backoff_seconds = 1_800;
     let mut timeout_ms = 5_000;
+    let mut chrome = WidgetCommandChrome::default();
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
+        if parse_widget_chrome_arg(arg, &mut iter, &mut chrome)? {
+            continue;
+        }
         match arg.as_str() {
             "--cache" => {
                 cache_path = Some(std::path::PathBuf::from(
@@ -285,16 +371,23 @@ fn run_codex_usage(args: &[String]) -> Result<String, String> {
         .ok_or_else(|| {
             "codex usage: yazelix_zellij_bar_widget codex [--cache <path>] [--display quota|token|both] [--periods 5h,week]".to_string()
         })?;
-    yazelix_zellij_bar::codex_usage_widget_text(yazelix_zellij_bar::CodexUsageWidgetOptions {
+    let path_var = env::var_os("PATH");
+    let options = yazelix_zellij_bar::CodexUsageWidgetOptions {
         cache_path: &cache_path,
-        path_var: env::var_os("PATH").as_deref(),
+        path_var: path_var.as_deref(),
         now_unix_seconds: unix_time_seconds(),
         max_age_seconds,
         error_backoff_seconds,
         timeout: std::time::Duration::from_millis(timeout_ms),
         display,
         periods: &periods,
-    })
+    };
+    let text = if chrome.configured() {
+        yazelix_zellij_bar::codex_usage_widget_body_text(options)?
+    } else {
+        yazelix_zellij_bar::codex_usage_widget_text(options)?
+    };
+    render_widget_command_segment(text, &chrome)
 }
 
 fn run_opencode_go_usage(args: &[String]) -> Result<String, String> {
@@ -308,8 +401,12 @@ fn run_opencode_go_usage(args: &[String]) -> Result<String, String> {
     ];
     let mut max_age_seconds = 600;
     let mut error_backoff_seconds = 1_800;
+    let mut chrome = WidgetCommandChrome::default();
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
+        if parse_widget_chrome_arg(arg, &mut iter, &mut chrome)? {
+            continue;
+        }
         match arg.as_str() {
             "--cache" => {
                 cache_path = Some(std::path::PathBuf::from(
@@ -355,17 +452,54 @@ fn run_opencode_go_usage(args: &[String]) -> Result<String, String> {
     if db_paths.is_empty() {
         db_paths = yazelix_zellij_bar::opencode_db_candidates_from_env();
     }
-    yazelix_zellij_bar::opencode_go_usage_widget_text(
-        yazelix_zellij_bar::OpenCodeGoUsageWidgetOptions {
-            cache_path: &cache_path,
-            db_paths: &db_paths,
-            now_unix_seconds: unix_time_seconds(),
-            max_age_seconds,
-            error_backoff_seconds,
-            display,
-            periods: &periods,
-        },
+    let options = yazelix_zellij_bar::OpenCodeGoUsageWidgetOptions {
+        cache_path: &cache_path,
+        db_paths: &db_paths,
+        now_unix_seconds: unix_time_seconds(),
+        max_age_seconds,
+        error_backoff_seconds,
+        display,
+        periods: &periods,
+    };
+    let text = if chrome.configured() {
+        yazelix_zellij_bar::opencode_go_usage_widget_body_text(options)?
+    } else {
+        yazelix_zellij_bar::opencode_go_usage_widget_text(options)?
+    };
+    render_widget_command_segment(text, &chrome)
+}
+
+fn run_cpu_usage(args: &[String]) -> Result<String, String> {
+    run_system_usage_widget(
+        args,
+        "cpu",
+        yazelix_zellij_bar::current_cpu_usage_widget_text(),
     )
+}
+
+fn run_ram_usage(args: &[String]) -> Result<String, String> {
+    run_system_usage_widget(
+        args,
+        "ram",
+        yazelix_zellij_bar::current_ram_usage_widget_text(),
+    )
+}
+
+fn run_system_usage_widget(args: &[String], label: &str, value: String) -> Result<String, String> {
+    let mut chrome = WidgetCommandChrome::default();
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        if parse_widget_chrome_arg(arg, &mut iter, &mut chrome)? {
+            continue;
+        }
+        return Err(format!("unknown {label} argument: {arg}"));
+    }
+    let body = if chrome.configured() {
+        format!("{label} {value}")
+    } else {
+        value
+    };
+    render_widget_command_segment(body, &chrome)
 }
 
 fn parse_agent_usage_display(raw: &str) -> Result<yazelix_zellij_bar::AgentUsageDisplay, String> {
@@ -411,6 +545,15 @@ fn parse_u64_arg(name: &str, value: Option<&String>) -> Result<u64, String> {
         .ok_or_else(|| format!("{name} requires a value"))?
         .parse::<u64>()
         .map_err(|_| format!("{name} must be an integer"))
+}
+
+fn parse_bool_arg(name: &str, value: Option<&String>) -> Result<bool, String> {
+    match value.map(String::as_str) {
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        Some(value) => Err(format!("{name} must be true or false, got {value}")),
+        None => Err(format!("{name} requires a value")),
+    }
 }
 
 fn unix_time_seconds() -> u64 {
@@ -479,21 +622,71 @@ mod tests {
             )
         );
         assert!(plugin_block.contains(
-            "format_right  \" #[fg=#00ff88,bold][ hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
+            "format_right  \" #[fg=#00ff88,bold] hx{pipe_workspace} #[fg=#6c7086,bold]• #[fg=#ff6600]{command_cpu} #[fg=#6c7086,bold]• #[fg=#ffff00,bold][demo] #[fg=#6c7086,bold]• #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
         ));
         assert!(plugin_block.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
         assert!(plugin_block.contains(
             r##"tab_normal_bell "#[fg=#ff0088,bold] [{index}] {sync_indicator}{fullscreen_indicator}""##
         ));
         assert!(plugin_block.contains(r##"tab_bell_indicator       """##));
-        assert!(plugin_block.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
+        assert!(plugin_block.contains(
+            r##"pipe_workspace_format " #[fg=#6c7086,bold]• #[fg=#00ff88,bold]{output}""##
+        ));
         assert!(plugin_block.contains(r#"format_left   "{mode} {tabs}""#));
         assert!(!plugin_block.contains("command_yazelix_tabs_command"));
         assert!(!plugin_block.contains("command_workspace_command"));
         assert!(plugin_block.contains(
-            "/runtime/libexec/yazelix_zellij_bar_widget codex --display quota --periods 5h,week"
+            "/runtime/libexec/yazelix_zellij_bar_widget codex --display quota --periods 5h,week --widget-frame none --widget-separator empty --widget-first false"
         ));
-        assert!(plugin_block.contains("/runtime/libexec/yazelix_zellij_bar_widget cpu"));
+        assert!(plugin_block.contains(
+            "/runtime/libexec/yazelix_zellij_bar_widget cpu --widget-frame none --widget-separator empty --widget-first false"
+        ));
+    }
+
+    // Regression: any widget chrome flag activates configured rendering instead of being a silent no-op.
+    #[test]
+    fn system_usage_command_honors_partial_widget_chrome_flags() {
+        let output = run(vec![
+            "cpu".into(),
+            "--widget-separator".into(),
+            "pipe".into(),
+        ])
+        .unwrap();
+
+        assert!(output.starts_with(" | cpu "));
+    }
+
+    // Defends: command widgets render their own frame and first-position spacing for the integrated bar.
+    #[test]
+    fn system_usage_command_renders_configured_widget_segment() {
+        let output = run(vec![
+            "ram".into(),
+            "--widget-frame".into(),
+            "square".into(),
+            "--widget-separator".into(),
+            "dot".into(),
+            "--widget-first".into(),
+            "true".into(),
+        ])
+        .unwrap();
+
+        assert!(output.starts_with(" [ram "));
+        assert!(output.ends_with(']'));
+    }
+
+    // Defends: invalid generated widget chrome is visible to zjstatus instead of producing malformed bar text.
+    #[test]
+    fn system_usage_command_rejects_invalid_widget_chrome() {
+        let error = run(vec![
+            "cpu".into(),
+            "--widget-frame".into(),
+            "none".into(),
+            "--widget-separator".into(),
+            "comma".into(),
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("invalid_widget_separator"));
     }
 
     // Defends: the integrated tab-strip command reads the same window-local status cache as the existing bar widgets.

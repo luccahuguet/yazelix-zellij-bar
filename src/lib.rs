@@ -28,6 +28,13 @@ pub const COMMAND_VERSION: &str = "{command_version}";
 pub const COMMAND_YAZELIX_TABS: &str = "{command_yazelix_tabs}";
 pub const TAB_LABEL_MODE_FULL: &str = "full";
 pub const TAB_LABEL_MODE_COMPACT: &str = "compact";
+pub const WIDGET_FRAME_NONE: &str = "none";
+pub const WIDGET_FRAME_SQUARE: &str = "square";
+pub const WIDGET_FRAME_ROUND: &str = "round";
+pub const WIDGET_SEPARATOR_DOT: &str = "dot";
+pub const WIDGET_SEPARATOR_EMPTY: &str = "empty";
+pub const WIDGET_SEPARATOR_PIPE: &str = "pipe";
+pub const WIDGET_SEPARATOR_SPACE: &str = "space";
 
 pub const DEFAULT_WIDGET_TRAY: &[&str] = &[
     WIDGET_SESSION,
@@ -38,6 +45,151 @@ pub const DEFAULT_WIDGET_TRAY: &[&str] = &[
     WIDGET_CPU,
     WIDGET_RAM,
 ];
+
+pub fn default_widget_frame() -> String {
+    WIDGET_FRAME_NONE.to_string()
+}
+
+pub fn default_widget_separator() -> String {
+    WIDGET_SEPARATOR_DOT.to_string()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WidgetFrame {
+    None,
+    Square,
+    Round,
+}
+
+impl WidgetFrame {
+    fn parse(raw: &str) -> Result<Self, BarRenderError> {
+        match raw.trim() {
+            WIDGET_FRAME_NONE => Ok(Self::None),
+            WIDGET_FRAME_SQUARE => Ok(Self::Square),
+            WIDGET_FRAME_ROUND => Ok(Self::Round),
+            value => Err(BarRenderError::InvalidWidgetFrame {
+                value: value.to_string(),
+            }),
+        }
+    }
+
+    fn frame(self, text: &str) -> String {
+        match self {
+            Self::None => text.to_string(),
+            Self::Square => format!("[{text}]"),
+            Self::Round => format!("({text})"),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::None => WIDGET_FRAME_NONE,
+            Self::Square => WIDGET_FRAME_SQUARE,
+            Self::Round => WIDGET_FRAME_ROUND,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WidgetSeparator {
+    Dot,
+    Empty,
+    Pipe,
+    Space,
+}
+
+impl WidgetSeparator {
+    fn parse(raw: &str) -> Result<Self, BarRenderError> {
+        match raw.trim() {
+            WIDGET_SEPARATOR_DOT => Ok(Self::Dot),
+            WIDGET_SEPARATOR_EMPTY => Ok(Self::Empty),
+            WIDGET_SEPARATOR_PIPE => Ok(Self::Pipe),
+            WIDGET_SEPARATOR_SPACE => Ok(Self::Space),
+            value => Err(BarRenderError::InvalidWidgetSeparator {
+                value: value.to_string(),
+            }),
+        }
+    }
+
+    fn marker(self) -> &'static str {
+        match self {
+            Self::Dot => "•",
+            Self::Empty => "",
+            Self::Pipe => "|",
+            Self::Space => " ",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WidgetChrome {
+    frame: WidgetFrame,
+    separator: WidgetSeparator,
+}
+
+impl WidgetChrome {
+    fn parse(frame: &str, separator: &str) -> Result<Self, BarRenderError> {
+        Ok(Self {
+            frame: WidgetFrame::parse(frame)?,
+            separator: WidgetSeparator::parse(separator)?,
+        })
+    }
+
+    fn default_runtime() -> Self {
+        Self {
+            frame: WidgetFrame::None,
+            separator: WidgetSeparator::Dot,
+        }
+    }
+
+    fn plain_segment_prefix(self, first: bool) -> String {
+        if first {
+            " ".to_string()
+        } else {
+            match self.separator {
+                WidgetSeparator::Dot => " • ".to_string(),
+                WidgetSeparator::Pipe => " | ".to_string(),
+                WidgetSeparator::Space => " ".to_string(),
+                WidgetSeparator::Empty => String::new(),
+            }
+        }
+    }
+
+    fn styled_segment_prefix(self, first: bool, style: &BarStyle) -> String {
+        if first {
+            " ".to_string()
+        } else {
+            match self.separator {
+                WidgetSeparator::Dot | WidgetSeparator::Pipe => {
+                    format!(" {}{} ", style.separator, self.separator.marker())
+                }
+                WidgetSeparator::Space => " ".to_string(),
+                WidgetSeparator::Empty => String::new(),
+            }
+        }
+    }
+
+    fn segment(self, text: &str, first: bool) -> String {
+        if text.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "{}{}",
+                self.plain_segment_prefix(first),
+                self.frame.frame(text)
+            )
+        }
+    }
+}
+
+pub fn render_configured_widget_segment(
+    text: &str,
+    frame: &str,
+    separator: &str,
+    first: bool,
+) -> Result<String, BarRenderError> {
+    Ok(WidgetChrome::parse(frame, separator)?.segment(text, first))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BarRenderRequest {
@@ -72,12 +224,30 @@ const RUNTIME_WIDGET_BIN_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_WIDGET_BIN__";
 const RUNTIME_DIR_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_DIR__";
 const RUNTIME_CLAUDE_USAGE_DISPLAY_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CLAUDE_USAGE_DISPLAY__";
 const RUNTIME_CLAUDE_USAGE_PERIODS_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CLAUDE_USAGE_PERIODS__";
+const RUNTIME_CLAUDE_USAGE_WIDGET_ARGS_PLACEHOLDER: &str =
+    "__YAZELIX_RUNTIME_CLAUDE_USAGE_WIDGET_ARGS__";
 const RUNTIME_CODEX_USAGE_DISPLAY_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CODEX_USAGE_DISPLAY__";
 const RUNTIME_CODEX_USAGE_PERIODS_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CODEX_USAGE_PERIODS__";
+const RUNTIME_CODEX_USAGE_WIDGET_ARGS_PLACEHOLDER: &str =
+    "__YAZELIX_RUNTIME_CODEX_USAGE_WIDGET_ARGS__";
 const RUNTIME_OPENCODE_GO_USAGE_DISPLAY_PLACEHOLDER: &str =
     "__YAZELIX_RUNTIME_OPENCODE_GO_USAGE_DISPLAY__";
 const RUNTIME_OPENCODE_GO_USAGE_PERIODS_PLACEHOLDER: &str =
     "__YAZELIX_RUNTIME_OPENCODE_GO_USAGE_PERIODS__";
+const RUNTIME_OPENCODE_GO_USAGE_WIDGET_ARGS_PLACEHOLDER: &str =
+    "__YAZELIX_RUNTIME_OPENCODE_GO_USAGE_WIDGET_ARGS__";
+const RUNTIME_CPU_WIDGET_ARGS_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_CPU_WIDGET_ARGS__";
+const RUNTIME_RAM_WIDGET_ARGS_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_RAM_WIDGET_ARGS__";
+const RUNTIME_PIPE_WORKSPACE_FORMAT_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_PIPE_WORKSPACE_FORMAT__";
+const RUNTIME_COMMAND_CLAUDE_USAGE_FORMAT_PLACEHOLDER: &str =
+    "__YAZELIX_RUNTIME_COMMAND_CLAUDE_USAGE_FORMAT__";
+const RUNTIME_COMMAND_CODEX_USAGE_FORMAT_PLACEHOLDER: &str =
+    "__YAZELIX_RUNTIME_COMMAND_CODEX_USAGE_FORMAT__";
+const RUNTIME_COMMAND_OPENCODE_GO_USAGE_FORMAT_PLACEHOLDER: &str =
+    "__YAZELIX_RUNTIME_COMMAND_OPENCODE_GO_USAGE_FORMAT__";
+const RUNTIME_COMMAND_CPU_FORMAT_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_COMMAND_CPU_FORMAT__";
+const RUNTIME_COMMAND_RAM_FORMAT_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_COMMAND_RAM_FORMAT__";
+const RUNTIME_VERSION_SEGMENT_PLACEHOLDER: &str = "__YAZELIX_RUNTIME_VERSION_SEGMENT__";
 const SYSTEM_USAGE_CACHE_SCHEMA_VERSION: u64 = 1;
 const SYSTEM_USAGE_CACHE_MAX_AGE_MILLIS: u64 = 5_000;
 const SYSTEM_USAGE_CACHE_REFRESH_GRACE_MILLIS: u64 = 30_000;
@@ -87,6 +257,10 @@ const SYSTEM_USAGE_CACHE_LOCK_WAIT_PADDING_MILLIS: u64 = 50;
 pub struct YazelixRuntimeBarConfig {
     pub zjstatus_plugin_url: String,
     pub widget_tray: Vec<String>,
+    #[serde(default = "default_widget_frame")]
+    pub widget_frame: String,
+    #[serde(default = "default_widget_separator")]
+    pub widget_separator: String,
     pub editor_label: String,
     pub shell_label: String,
     pub terminal_label: String,
@@ -640,6 +814,8 @@ fn invalid_status_cache(reason: impl Into<String>) -> BarRenderError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BarRenderError {
+    InvalidWidgetFrame { value: String },
+    InvalidWidgetSeparator { value: String },
     InvalidWidgetTrayEntry { entry: String },
     InvalidTabLabelMode { mode: String },
     InvalidStatusCache { reason: String },
@@ -649,6 +825,8 @@ pub enum BarRenderError {
 impl BarRenderError {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::InvalidWidgetFrame { .. } => "invalid_widget_frame",
+            Self::InvalidWidgetSeparator { .. } => "invalid_widget_separator",
             Self::InvalidWidgetTrayEntry { .. } => "invalid_widget_tray_entry",
             Self::InvalidTabLabelMode { .. } => "invalid_tab_label_mode",
             Self::InvalidStatusCache { .. } => "invalid_status_cache",
@@ -799,6 +977,24 @@ pub fn codex_usage_widget_text(options: CodexUsageWidgetOptions<'_>) -> Result<S
     ))
 }
 
+pub fn codex_usage_widget_body_text(
+    options: CodexUsageWidgetOptions<'_>,
+) -> Result<String, String> {
+    refresh_codex_usage_shared_cache(
+        options.cache_path,
+        options.path_var,
+        options.now_unix_seconds,
+        options.max_age_seconds,
+        options.error_backoff_seconds,
+        options.timeout,
+    )?;
+    Ok(render_codex_usage_widget_body_from_cache(
+        options.cache_path,
+        options.display,
+        options.periods,
+    ))
+}
+
 pub fn claude_usage_widget_text(options: ClaudeUsageWidgetOptions<'_>) -> Result<String, String> {
     refresh_claude_usage_shared_cache(
         options.cache_path,
@@ -809,6 +1005,24 @@ pub fn claude_usage_widget_text(options: ClaudeUsageWidgetOptions<'_>) -> Result
         options.timeout,
     )?;
     Ok(render_claude_usage_widget_from_cache(
+        options.cache_path,
+        options.display,
+        options.periods,
+    ))
+}
+
+pub fn claude_usage_widget_body_text(
+    options: ClaudeUsageWidgetOptions<'_>,
+) -> Result<String, String> {
+    refresh_claude_usage_shared_cache(
+        options.cache_path,
+        options.path_var,
+        options.now_unix_seconds,
+        options.max_age_seconds,
+        options.error_backoff_seconds,
+        options.timeout,
+    )?;
+    Ok(render_claude_usage_widget_body_from_cache(
         options.cache_path,
         options.display,
         options.periods,
@@ -833,6 +1047,24 @@ pub fn opencode_go_usage_widget_text(
     ))
 }
 
+#[cfg(feature = "providers")]
+pub fn opencode_go_usage_widget_body_text(
+    options: OpenCodeGoUsageWidgetOptions<'_>,
+) -> Result<String, String> {
+    refresh_opencode_go_usage_shared_cache(
+        options.cache_path,
+        options.db_paths,
+        options.now_unix_seconds,
+        options.max_age_seconds,
+        options.error_backoff_seconds,
+    )?;
+    Ok(render_opencode_go_usage_widget_body_from_cache(
+        options.cache_path,
+        options.display,
+        options.periods,
+    ))
+}
+
 pub fn render_opencode_go_usage_widget_from_cache(
     path: &std::path::Path,
     display: AgentUsageDisplay,
@@ -842,6 +1074,24 @@ pub fn render_opencode_go_usage_widget_from_cache(
         .and_then(|cache| cache.get("opencode_go").cloned())
         .map(|entry| {
             render_windowed_agent_usage_status_widget(
+                "go",
+                &windowed_usage_facts_from_cache_entry(&entry),
+                periods,
+                display,
+            )
+        })
+        .unwrap_or_default()
+}
+
+pub fn render_opencode_go_usage_widget_body_from_cache(
+    path: &std::path::Path,
+    display: AgentUsageDisplay,
+    periods: &[AgentUsagePeriod],
+) -> String {
+    read_opencode_go_usage_shared_cache_value(path)
+        .and_then(|cache| cache.get("opencode_go").cloned())
+        .map(|entry| {
+            render_windowed_agent_usage_status_body(
                 "go",
                 &windowed_usage_facts_from_cache_entry(&entry),
                 periods,
@@ -869,6 +1119,24 @@ pub fn render_claude_usage_widget_from_cache(
         .unwrap_or_default()
 }
 
+pub fn render_claude_usage_widget_body_from_cache(
+    path: &std::path::Path,
+    display: AgentUsageDisplay,
+    periods: &[AgentUsagePeriod],
+) -> String {
+    read_claude_usage_shared_cache_value(path)
+        .and_then(|cache| cache.get("claude").cloned())
+        .map(|entry| {
+            render_windowed_agent_usage_status_body(
+                "claude",
+                &windowed_usage_facts_from_cache_entry(&entry),
+                periods,
+                display,
+            )
+        })
+        .unwrap_or_default()
+}
+
 pub fn render_codex_usage_widget_from_cache(
     path: &std::path::Path,
     display: AgentUsageDisplay,
@@ -878,6 +1146,23 @@ pub fn render_codex_usage_widget_from_cache(
         .and_then(|cache| cache.get("codex").cloned())
         .map(|entry| {
             render_codex_usage_status_widget_for_periods(
+                &windowed_usage_facts_from_cache_entry(&entry),
+                display,
+                periods,
+            )
+        })
+        .unwrap_or_default()
+}
+
+pub fn render_codex_usage_widget_body_from_cache(
+    path: &std::path::Path,
+    display: AgentUsageDisplay,
+    periods: &[AgentUsagePeriod],
+) -> String {
+    read_codex_usage_shared_cache_value(path)
+        .and_then(|cache| cache.get("codex").cloned())
+        .map(|entry| {
+            render_codex_usage_status_body_for_periods(
                 &windowed_usage_facts_from_cache_entry(&entry),
                 display,
                 periods,
@@ -1261,16 +1546,27 @@ fn escape_kdl_string(value: &str) -> String {
 pub fn render_zjstatus_bar_segments(
     request: &BarRenderRequest,
 ) -> Result<BarRenderData, BarRenderError> {
-    render_zjstatus_bar_segments_with_style(request, &DARK_BAR_STYLE)
+    render_zjstatus_bar_segments_with_style(
+        request,
+        &DARK_BAR_STYLE,
+        WidgetChrome::default_runtime(),
+    )
 }
 
 fn render_zjstatus_bar_segments_with_style(
     request: &BarRenderRequest,
     style: &BarStyle,
+    chrome: WidgetChrome,
 ) -> Result<BarRenderData, BarRenderError> {
+    let has_tray = !request.widget_tray.is_empty();
     Ok(BarRenderData {
-        widget_tray_segment: render_widget_tray_segment_with_style(request, style)?,
-        custom_text_segment: render_custom_text_segment_with_style(&request.custom_text, style),
+        widget_tray_segment: render_widget_tray_segment_with_style(request, style, chrome)?,
+        custom_text_segment: render_runtime_custom_text_segment_with_style(
+            &request.custom_text,
+            style,
+            chrome,
+            !has_tray,
+        ),
     })
 }
 
@@ -1279,6 +1575,7 @@ pub fn render_yazelix_runtime_plugin_block(
 ) -> Result<String, BarRenderError> {
     let style = bar_style_for_appearance(&config.appearance_mode);
     let appearance_mode = runtime_bar_appearance(&config.appearance_mode);
+    let chrome = WidgetChrome::parse(&config.widget_frame, &config.widget_separator)?;
     let bar_segments = render_zjstatus_bar_segments_with_style(
         &BarRenderRequest {
             widget_tray: config.widget_tray.clone(),
@@ -1288,8 +1585,20 @@ pub fn render_yazelix_runtime_plugin_block(
             custom_text: config.custom_text.clone(),
         },
         style,
+        chrome,
     )?;
     let tab_labels = render_zjstatus_tab_label_formats_with_style(&config.tab_label_mode, style)?;
+    let widget_args = || runtime_command_widget_args(chrome);
+    let widget_format = |style_prefix: &str, widget| {
+        runtime_widget_format(
+            style_prefix,
+            chrome,
+            style,
+            widget_first_position(&config.widget_tray, widget),
+        )
+    };
+    let has_content_before_version =
+        !config.widget_tray.is_empty() || !config.custom_text.trim().is_empty();
     let replacements = [
         (
             RUNTIME_ZJSTATUS_PLUGIN_URL_PLACEHOLDER,
@@ -1347,6 +1656,7 @@ pub fn render_yazelix_runtime_plugin_block(
             RUNTIME_CLAUDE_USAGE_PERIODS_PLACEHOLDER,
             escape_kdl_string(&agent_usage_periods_arg(&config.claude_usage_periods)),
         ),
+        (RUNTIME_CLAUDE_USAGE_WIDGET_ARGS_PLACEHOLDER, widget_args()),
         (
             RUNTIME_CODEX_USAGE_DISPLAY_PLACEHOLDER,
             escape_kdl_string(&config.codex_usage_display),
@@ -1355,6 +1665,7 @@ pub fn render_yazelix_runtime_plugin_block(
             RUNTIME_CODEX_USAGE_PERIODS_PLACEHOLDER,
             escape_kdl_string(&agent_usage_periods_arg(&config.codex_usage_periods)),
         ),
+        (RUNTIME_CODEX_USAGE_WIDGET_ARGS_PLACEHOLDER, widget_args()),
         (
             RUNTIME_OPENCODE_GO_USAGE_DISPLAY_PLACEHOLDER,
             escape_kdl_string(&config.opencode_go_usage_display),
@@ -1362,6 +1673,40 @@ pub fn render_yazelix_runtime_plugin_block(
         (
             RUNTIME_OPENCODE_GO_USAGE_PERIODS_PLACEHOLDER,
             escape_kdl_string(&agent_usage_periods_arg(&config.opencode_go_usage_periods)),
+        ),
+        (
+            RUNTIME_OPENCODE_GO_USAGE_WIDGET_ARGS_PLACEHOLDER,
+            widget_args(),
+        ),
+        (RUNTIME_CPU_WIDGET_ARGS_PLACEHOLDER, widget_args()),
+        (RUNTIME_RAM_WIDGET_ARGS_PLACEHOLDER, widget_args()),
+        (
+            RUNTIME_PIPE_WORKSPACE_FORMAT_PLACEHOLDER,
+            widget_format(style.workspace, WIDGET_WORKSPACE),
+        ),
+        (
+            RUNTIME_COMMAND_CLAUDE_USAGE_FORMAT_PLACEHOLDER,
+            "{stdout}".to_string(),
+        ),
+        (
+            RUNTIME_COMMAND_CODEX_USAGE_FORMAT_PLACEHOLDER,
+            "{stdout}".to_string(),
+        ),
+        (
+            RUNTIME_COMMAND_OPENCODE_GO_USAGE_FORMAT_PLACEHOLDER,
+            "{stdout}".to_string(),
+        ),
+        (
+            RUNTIME_COMMAND_CPU_FORMAT_PLACEHOLDER,
+            "{stdout}".to_string(),
+        ),
+        (
+            RUNTIME_COMMAND_RAM_FORMAT_PLACEHOLDER,
+            "{stdout}".to_string(),
+        ),
+        (
+            RUNTIME_VERSION_SEGMENT_PLACEHOLDER,
+            render_runtime_version_segment_with_style(style, chrome, !has_content_before_version),
         ),
     ];
     let mut rendered = YAZELIX_RUNTIME_BAR_TEMPLATE.to_string();
@@ -1401,26 +1746,53 @@ fn unresolved_runtime_preset_placeholder(rendered: &str) -> Option<String> {
     Some(rendered[start..start + RUNTIME_PLACEHOLDER_PREFIX.len() + end + 2].to_string())
 }
 
+fn widget_first_position(widget_tray: &[String], widget: &str) -> bool {
+    widget_tray
+        .iter()
+        .position(|entry| entry == widget)
+        .unwrap_or(usize::MAX)
+        == 0
+}
+
+fn runtime_command_widget_args(chrome: WidgetChrome) -> String {
+    format!(
+        " --widget-frame {} --widget-separator {} --widget-first {}",
+        chrome.frame.as_str(),
+        WIDGET_SEPARATOR_EMPTY,
+        "false"
+    )
+}
+
+fn runtime_widget_format(
+    style_prefix: &str,
+    chrome: WidgetChrome,
+    style: &BarStyle,
+    first: bool,
+) -> String {
+    let output = chrome.frame.frame("{output}");
+    format!(
+        "{}{}{}",
+        chrome.styled_segment_prefix(first, style),
+        style_prefix,
+        output
+    )
+}
+
 pub fn render_widget_tray_segment(request: &BarRenderRequest) -> Result<String, BarRenderError> {
-    render_widget_tray_segment_with_style(request, &DARK_BAR_STYLE)
+    render_widget_tray_segment_with_style(request, &DARK_BAR_STYLE, WidgetChrome::default_runtime())
 }
 
 fn render_widget_tray_segment_with_style(
     request: &BarRenderRequest,
     style: &BarStyle,
+    chrome: WidgetChrome,
 ) -> Result<String, BarRenderError> {
-    request
-        .widget_tray
-        .iter()
-        .map(|widget| render_widget_with_style(widget, request, style))
-        .collect::<Result<Vec<_>, _>>()
-        .map(|parts| {
-            parts
-                .into_iter()
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>()
-                .join("")
-        })
+    let mut rendered = String::new();
+    for (index, widget) in request.widget_tray.iter().enumerate() {
+        let part = render_widget_with_style(widget, request, style, chrome, index == 0)?;
+        rendered.push_str(&part);
+    }
+    Ok(rendered)
 }
 
 pub fn render_custom_text_segment(custom_text: &str) -> String {
@@ -1434,6 +1806,37 @@ fn render_custom_text_segment_with_style(custom_text: &str, style: &BarStyle) ->
     } else {
         format!("{}[{trimmed}] ", style.custom_text)
     }
+}
+
+fn render_runtime_custom_text_segment_with_style(
+    custom_text: &str,
+    style: &BarStyle,
+    chrome: WidgetChrome,
+    first: bool,
+) -> String {
+    let trimmed = custom_text.trim();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{}{}[{trimmed}]",
+            chrome.styled_segment_prefix(first, style),
+            style.custom_text
+        )
+    }
+}
+
+fn render_runtime_version_segment_with_style(
+    style: &BarStyle,
+    chrome: WidgetChrome,
+    first: bool,
+) -> String {
+    format!(
+        "{}{}YZX {} ",
+        chrome.styled_segment_prefix(first, style),
+        style.brand,
+        COMMAND_VERSION
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2757,6 +3160,17 @@ pub fn render_codex_usage_status_widget_for_periods(
     )
 }
 
+pub fn render_codex_usage_status_body_for_periods(
+    facts: &WindowedAgentUsageFacts,
+    display: AgentUsageDisplay,
+    periods: &[AgentUsagePeriod],
+) -> String {
+    render_agent_usage_status_body(
+        "codex",
+        &render_codex_usage_summary_for_periods(facts, display, periods),
+    )
+}
+
 pub fn render_codex_usage_summary(
     facts: &WindowedAgentUsageFacts,
     display: AgentUsageDisplay,
@@ -2782,7 +3196,7 @@ pub fn render_codex_usage_summary_for_periods(
             parts.push(part);
         }
     }
-    parts.join(" · ")
+    parts.join(" | ")
 }
 
 pub fn render_windowed_agent_usage_status_widget(
@@ -2792,6 +3206,18 @@ pub fn render_windowed_agent_usage_status_widget(
     display: AgentUsageDisplay,
 ) -> String {
     render_agent_usage_status_widget(
+        label,
+        &render_windowed_agent_usage_summary(facts, periods, display),
+    )
+}
+
+pub fn render_windowed_agent_usage_status_body(
+    label: &str,
+    facts: &WindowedAgentUsageFacts,
+    periods: &[AgentUsagePeriod],
+    display: AgentUsageDisplay,
+) -> String {
+    render_agent_usage_status_body(
         label,
         &render_windowed_agent_usage_summary(facts, periods, display),
     )
@@ -2818,10 +3244,19 @@ pub fn render_windowed_agent_usage_summary(
 }
 
 fn render_agent_usage_status_widget(label: &str, summary: &str) -> String {
+    let body = render_agent_usage_status_body(label, summary);
+    if body.is_empty() {
+        String::new()
+    } else {
+        format!(" [{body}]")
+    }
+}
+
+fn render_agent_usage_status_body(label: &str, summary: &str) -> String {
     if summary.is_empty() {
         String::new()
     } else {
-        format!(" [{label} {summary}]")
+        format!("{label} {summary}")
     }
 }
 
@@ -3103,18 +3538,30 @@ fn render_widget_with_style(
     widget: &str,
     request: &BarRenderRequest,
     style: &BarStyle,
+    chrome: WidgetChrome,
+    first: bool,
 ) -> Result<String, BarRenderError> {
+    let prefix = chrome.styled_segment_prefix(first, style);
+    let inline = |style_prefix: &str, text: String| {
+        format!("{}{}{}", prefix, style_prefix, chrome.frame.frame(&text))
+    };
+    let command = |style_prefix: &str, placeholder: &str| {
+        format!("{}{}{}", prefix, style_prefix, placeholder)
+    };
     match widget {
-        WIDGET_SESSION => Ok(format!(" {}{{session}}", style.session)),
-        WIDGET_EDITOR => Ok(format!(" {}[ {}]", style.widget, request.editor_label)),
-        WIDGET_SHELL => Ok(format!(" {}[❯{}]", style.widget, request.shell_label)),
-        WIDGET_TERM => Ok(format!(" {}[ {}]", style.widget, request.terminal_label)),
+        WIDGET_SESSION => Ok(inline(style.session, "{session}".to_string())),
+        WIDGET_EDITOR => Ok(inline(style.widget, format!(" {}", request.editor_label))),
+        WIDGET_SHELL => Ok(inline(style.widget, format!("❯{}", request.shell_label))),
+        WIDGET_TERM => Ok(inline(
+            style.widget,
+            format!(" {}", request.terminal_label),
+        )),
         WIDGET_WORKSPACE => Ok(PIPE_WORKSPACE.to_string()),
-        WIDGET_CLAUDE_USAGE => Ok(COMMAND_CLAUDE_USAGE.to_string()),
-        WIDGET_CODEX_USAGE => Ok(COMMAND_CODEX_USAGE.to_string()),
-        WIDGET_OPENCODE_GO_USAGE => Ok(COMMAND_OPENCODE_GO_USAGE.to_string()),
-        WIDGET_CPU => Ok(COMMAND_CPU.to_string()),
-        WIDGET_RAM => Ok(COMMAND_RAM.to_string()),
+        WIDGET_CLAUDE_USAGE => Ok(command(style.usage, COMMAND_CLAUDE_USAGE)),
+        WIDGET_CODEX_USAGE => Ok(command(style.usage, COMMAND_CODEX_USAGE)),
+        WIDGET_OPENCODE_GO_USAGE => Ok(command(style.usage, COMMAND_OPENCODE_GO_USAGE)),
+        WIDGET_CPU => Ok(command(style.system_usage, COMMAND_CPU)),
+        WIDGET_RAM => Ok(command(style.system_usage, COMMAND_RAM)),
         _ => Err(BarRenderError::InvalidWidgetTrayEntry {
             entry: widget.to_string(),
         }),
@@ -3222,7 +3669,24 @@ mod tests {
 
         assert_eq!(
             rendered,
-            " #[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][ hx] #[fg=#00ff88,bold][❯nu] #[fg=#00ff88,bold][ ghostty]{command_codex_usage}{command_cpu}{command_ram}"
+            " #[fg=#ff0088,bold]{session} #[fg=#6c7086,bold]• #[fg=#00ff88,bold] hx #[fg=#6c7086,bold]• #[fg=#00ff88,bold]❯nu #[fg=#6c7086,bold]• #[fg=#00ff88,bold] ghostty #[fg=#6c7086,bold]• #[fg=#bb88ff,bold]{command_codex_usage} #[fg=#6c7086,bold]• #[fg=#ff6600]{command_cpu} #[fg=#6c7086,bold]• #[fg=#ff6600]{command_ram}"
+        );
+    }
+
+    // Defends: square-frame mode treats session as a normal framed widget instead of a hardcoded bare placeholder.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn renders_session_with_square_widget_frame() {
+        let rendered = render_widget_tray_segment_with_style(
+            &render_request(&["session", "editor"]),
+            &DARK_BAR_STYLE,
+            WidgetChrome::parse(WIDGET_FRAME_SQUARE, WIDGET_SEPARATOR_SPACE).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            rendered,
+            " #[fg=#ff0088,bold][{session}] #[fg=#00ff88,bold][ hx]"
         );
     }
 
@@ -3242,6 +3706,18 @@ mod tests {
         let rendered = render_widget_tray_segment(&render_request(&["session"])).unwrap();
 
         assert_eq!(rendered, " #[fg=#ff0088,bold]{session}");
+    }
+
+    // Regression: session follows the configured widget separator when it is not first.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn renders_session_with_configured_separator_when_not_first() {
+        let rendered = render_widget_tray_segment(&render_request(&["editor", "session"])).unwrap();
+
+        assert_eq!(
+            rendered,
+            " #[fg=#00ff88,bold] hx #[fg=#6c7086,bold]• #[fg=#ff0088,bold]{session}"
+        );
     }
 
     // Regression: the active-tab workspace widget renders through a pushed pipe placeholder, not an async command result that can lag behind tab focus.
@@ -3266,7 +3742,7 @@ mod tests {
 
         assert_eq!(
             rendered,
-            "{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}"
+            " #[fg=#bb88ff,bold]{command_claude_usage} #[fg=#6c7086,bold]• #[fg=#bb88ff,bold]{command_codex_usage} #[fg=#6c7086,bold]• #[fg=#bb88ff,bold]{command_opencode_go_usage}"
         );
     }
 
@@ -3279,6 +3755,8 @@ mod tests {
                 "workspace".to_string(),
                 "cpu".to_string(),
             ],
+            widget_frame: WIDGET_FRAME_NONE.to_string(),
+            widget_separator: WIDGET_SEPARATOR_DOT.to_string(),
             editor_label: "hx".to_string(),
             shell_label: "nu".to_string(),
             terminal_label: "ghostty".to_string(),
@@ -3311,7 +3789,7 @@ mod tests {
         assert!(YAZELIX_RUNTIME_BAR_TEMPLATE.contains("pipe_workspace_format"));
         assert!(rendered.contains(r#"plugin location="file:/runtime/share/zjstatus.wasm" {"#));
         assert!(rendered.contains(
-            "format_right  \" #[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][ hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
+            "format_right  \" #[fg=#ff0088,bold]{session} #[fg=#6c7086,bold]• #[fg=#00ff88,bold] hx{pipe_workspace} #[fg=#6c7086,bold]• #[fg=#ff6600]{command_cpu} #[fg=#6c7086,bold]• #[fg=#ffff00,bold][demo] #[fg=#6c7086,bold]• #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
         ));
         assert!(rendered.contains(r#"format_left   "{mode} {tabs}""#));
         assert!(rendered.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
@@ -3319,17 +3797,62 @@ mod tests {
             r##"tab_normal_bell "#[fg=#ff0088,bold] [{index}] {sync_indicator}{fullscreen_indicator}""##
         ));
         assert!(rendered.contains(r##"tab_bell_indicator       """##));
-        assert!(rendered.contains(r##"pipe_workspace_format "#[fg=#00ff88,bold]{output}""##));
+        assert!(rendered.contains(
+            r##"pipe_workspace_format " #[fg=#6c7086,bold]• #[fg=#00ff88,bold]{output}""##
+        ));
         assert!(!rendered.contains("command_yazelix_tabs_command"));
         assert!(!rendered.contains("command_workspace_command"));
         assert!(!rendered.contains("command_cursor"));
         assert!(rendered.contains(
-            r#"command_codex_usage_command "/runtime/bin/yazelix_zellij_bar_widget codex --display quota --periods 5h,week""#
+            r#"command_codex_usage_command "/runtime/bin/yazelix_zellij_bar_widget codex --display quota --periods 5h,week --widget-frame none --widget-separator empty --widget-first false""#
         ));
+        assert!(
+            rendered
+                .contains(r#"--widget-frame none --widget-separator empty --widget-first false"#)
+        );
+        assert!(rendered.contains(r##"command_codex_usage_format "{stdout}""##));
+        assert!(rendered.contains(r##"command_codex_usage_rendermode "raw""##));
         assert!(rendered.contains(
             r#"command_version_command "/runtime/bin/yazelix_zellij_bar_widget version --runtime-dir /runtime""#
         ));
         assert!(!rendered.contains(RUNTIME_PLACEHOLDER_PREFIX));
+    }
+
+    // Regression: generated command args use canonical enum values after validation, not raw config text.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn runtime_plugin_normalizes_widget_chrome_args() {
+        let mut config = runtime_bar_config();
+        config.widget_frame = " square ".to_string();
+        config.widget_separator = " pipe ".to_string();
+
+        let rendered = render_yazelix_runtime_plugin_block(&config).unwrap();
+
+        assert!(rendered.contains(
+            r#"command_cpu_command "/runtime/bin/yazelix_zellij_bar_widget cpu --widget-frame square --widget-separator empty --widget-first false""#
+        ));
+        assert!(rendered.contains(
+            r##"pipe_workspace_format " #[fg=#6c7086,bold]| #[fg=#00ff88,bold][{output}]""##
+        ));
+        assert!(rendered.contains(r##"command_cpu_format "{stdout}""##));
+        assert!(rendered.contains(
+            "format_right  \" #[fg=#ff0088,bold][{session}] #[fg=#6c7086,bold]| #[fg=#00ff88,bold][ hx]{pipe_workspace} #[fg=#6c7086,bold]| #[fg=#ff6600]{command_cpu} #[fg=#6c7086,bold]| #[fg=#ffff00,bold][demo] #[fg=#6c7086,bold]| #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
+        ));
+    }
+
+    // Defends: unsupported widget chrome settings fail before emitting invalid zjstatus KDL.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn runtime_plugin_rejects_invalid_widget_chrome() {
+        let mut config = runtime_bar_config();
+        config.widget_frame = "curly".to_string();
+        let frame_error = render_yazelix_runtime_plugin_block(&config).unwrap_err();
+        assert_eq!(frame_error.code(), "invalid_widget_frame");
+
+        let mut config = runtime_bar_config();
+        config.widget_separator = "comma".to_string();
+        let separator_error = render_yazelix_runtime_plugin_block(&config).unwrap_err();
+        assert_eq!(separator_error.code(), "invalid_widget_separator");
     }
 
     // Defends: light appearance uses a purpose-built status-bar palette rather than dark-mode neon on a pale terminal.
@@ -3341,7 +3864,7 @@ mod tests {
         let rendered = render_yazelix_runtime_plugin_block(&config).unwrap();
 
         assert!(rendered.contains(
-            "format_right  \" #[fg=#7c3f97,bold]{session} #[fg=#2f7d32,bold][ hx]{pipe_workspace}{command_cpu} #[fg=#9a5a00,bold][demo] #[fg=#1e66f5,bold]YZX {command_version} \" // {datetime}"
+            "format_right  \" #[fg=#7c3f97,bold]{session} #[fg=#8c8fa1,bold]• #[fg=#2f7d32,bold] hx{pipe_workspace} #[fg=#8c8fa1,bold]• #[fg=#a24f00]{command_cpu} #[fg=#8c8fa1,bold]• #[fg=#9a5a00,bold][demo] #[fg=#8c8fa1,bold]• #[fg=#1e66f5,bold]YZX {command_version} \" // {datetime}"
         ));
         assert!(rendered.contains(r##"mode_normal  "#[bg=#cfe8d4,fg=#1f5f32,bold] NORMAL ""##));
         assert!(rendered.contains(
@@ -3353,9 +3876,12 @@ mod tests {
         assert!(rendered.contains(
             r##"tab_normal_flashing_bell "#[bg=#b4637a,fg=#fffaf3,bold] [{index}] {sync_indicator}{fullscreen_indicator}""##
         ));
-        assert!(rendered.contains(r##"pipe_workspace_format "#[fg=#2f7d32,bold]{output}""##));
-        assert!(rendered.contains(r##"command_codex_usage_format "#[fg=#7850a8,bold]{stdout}""##));
-        assert!(rendered.contains(r##"command_cpu_format " #[fg=#a24f00][cpu {stdout}]""##));
+        assert!(rendered.contains(
+            r##"pipe_workspace_format " #[fg=#8c8fa1,bold]• #[fg=#2f7d32,bold]{output}""##
+        ));
+        assert!(rendered.contains(r##"command_codex_usage_format "{stdout}""##));
+        assert!(rendered.contains(r##"command_codex_usage_rendermode "raw""##));
+        assert!(rendered.contains(r##"command_cpu_format "{stdout}""##));
         assert!(!rendered.contains("command_cursor"));
         assert!(!rendered.contains("#00ff88"));
     }
@@ -3538,7 +4064,7 @@ MemAvailable:   250000 kB
 
         assert_eq!(
             rendered,
-            " #[fg=#00ff88,bold][ hx]{pipe_workspace} #[fg=#00ff88,bold][❯nu]"
+            " #[fg=#00ff88,bold] hx{pipe_workspace} #[fg=#6c7086,bold]• #[fg=#00ff88,bold]❯nu"
         );
     }
 
@@ -3572,15 +4098,15 @@ MemAvailable:   250000 kB
 
         assert_eq!(
             render_codex_usage_status_widget(&facts, AgentUsageDisplay::Quota),
-            " [codex 30m/5h 88% · 0h/7d 100%]"
+            " [codex 30m/5h 88% | 0h/7d 100%]"
         );
         assert_eq!(
             render_codex_usage_status_widget(&facts, AgentUsageDisplay::Token),
-            " [codex 30m/5h 1.23M · 0h/7d 345M]"
+            " [codex 30m/5h 1.23M | 0h/7d 345M]"
         );
         assert_eq!(
             render_codex_usage_status_widget(&facts, AgentUsageDisplay::Both),
-            " [codex 30m/5h 1.23M 88% · 0h/7d 345M 100%]"
+            " [codex 30m/5h 1.23M 88% | 0h/7d 345M 100%]"
         );
     }
 
@@ -3646,7 +4172,7 @@ esac
         })
         .unwrap();
 
-        assert_eq!(text, " [codex 3h/5h 138M 49% · 4d/7d 1.34B 80%]");
+        assert_eq!(text, " [codex 3h/5h 138M 49% | 4d/7d 1.34B 80%]");
         assert_eq!(
             read_codex_usage_shared_cache_value(&cache_path)
                 .unwrap()
