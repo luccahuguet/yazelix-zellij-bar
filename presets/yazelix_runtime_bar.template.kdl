@@ -1,7 +1,7 @@
 plugin location="__YAZELIX_RUNTIME_ZJSTATUS_PLUGIN_URL__" {
     format_left   "{mode} {tabs}"
     format_center ""
-    format_right  "__YAZELIX_RUNTIME_STYLE_SESSION__{session}__YAZELIX_RUNTIME_WIDGET_TRAY__ __YAZELIX_RUNTIME_CUSTOM_TEXT____YAZELIX_RUNTIME_STYLE_BRAND__YZX {command_version} " // {datetime}
+    format_right  "__YAZELIX_RUNTIME_WIDGET_TRAY__ __YAZELIX_RUNTIME_CUSTOM_TEXT____YAZELIX_RUNTIME_STYLE_BRAND__YZX {command_version} " // {datetime}
     format_hide_on_overlength "true"
     format_precedence "lrc"
     format_space  ""

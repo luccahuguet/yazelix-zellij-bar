@@ -8,6 +8,7 @@ use appearance::{BarStyle, DARK_BAR_STYLE, bar_style_for_appearance, runtime_bar
 use serde::{Deserialize, Serialize};
 
 pub const WIDGET_EDITOR: &str = "editor";
+pub const WIDGET_SESSION: &str = "session";
 pub const WIDGET_SHELL: &str = "shell";
 pub const WIDGET_TERM: &str = "term";
 pub const WIDGET_WORKSPACE: &str = "workspace";
@@ -29,6 +30,7 @@ pub const TAB_LABEL_MODE_FULL: &str = "full";
 pub const TAB_LABEL_MODE_COMPACT: &str = "compact";
 
 pub const DEFAULT_WIDGET_TRAY: &[&str] = &[
+    WIDGET_SESSION,
     WIDGET_EDITOR,
     WIDGET_SHELL,
     WIDGET_TERM,
@@ -3103,6 +3105,7 @@ fn render_widget_with_style(
     style: &BarStyle,
 ) -> Result<String, BarRenderError> {
     match widget {
+        WIDGET_SESSION => Ok(format!(" {}{{session}}", style.session)),
         WIDGET_EDITOR => Ok(format!(" {}[ {}]", style.widget, request.editor_label)),
         WIDGET_SHELL => Ok(format!(" {}[❯{}]", style.widget, request.shell_label)),
         WIDGET_TERM => Ok(format!(" {}[ {}]", style.widget, request.terminal_label)),
@@ -3219,7 +3222,7 @@ mod tests {
 
         assert_eq!(
             rendered,
-            " #[fg=#00ff88,bold][ hx] #[fg=#00ff88,bold][❯nu] #[fg=#00ff88,bold][ ghostty]{command_codex_usage}{command_cpu}{command_ram}"
+            " #[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][ hx] #[fg=#00ff88,bold][❯nu] #[fg=#00ff88,bold][ ghostty]{command_codex_usage}{command_cpu}{command_ram}"
         );
     }
 
@@ -3230,6 +3233,15 @@ mod tests {
         let rendered = render_widget_tray_segment(&render_request(&[])).unwrap();
 
         assert_eq!(rendered, "");
+    }
+
+    // Defends: session name display is controlled by the widget tray instead of being hardcoded into the runtime template.
+    // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
+    #[test]
+    fn renders_session_name_as_widget_tray_segment() {
+        let rendered = render_widget_tray_segment(&render_request(&["session"])).unwrap();
+
+        assert_eq!(rendered, " #[fg=#ff0088,bold]{session}");
     }
 
     // Regression: the active-tab workspace widget renders through a pushed pipe placeholder, not an async command result that can lag behind tab focus.
@@ -3262,6 +3274,7 @@ mod tests {
         YazelixRuntimeBarConfig {
             zjstatus_plugin_url: "file:/runtime/share/zjstatus.wasm".to_string(),
             widget_tray: vec![
+                "session".to_string(),
                 "editor".to_string(),
                 "workspace".to_string(),
                 "cpu".to_string(),
@@ -3298,7 +3311,7 @@ mod tests {
         assert!(YAZELIX_RUNTIME_BAR_TEMPLATE.contains("pipe_workspace_format"));
         assert!(rendered.contains(r#"plugin location="file:/runtime/share/zjstatus.wasm" {"#));
         assert!(rendered.contains(
-            "format_right  \"#[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][ hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
+            "format_right  \" #[fg=#ff0088,bold]{session} #[fg=#00ff88,bold][ hx]{pipe_workspace}{command_cpu} #[fg=#ffff00,bold][demo] #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
         ));
         assert!(rendered.contains(r#"format_left   "{mode} {tabs}""#));
         assert!(rendered.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
@@ -3328,7 +3341,7 @@ mod tests {
         let rendered = render_yazelix_runtime_plugin_block(&config).unwrap();
 
         assert!(rendered.contains(
-            "format_right  \"#[fg=#7c3f97,bold]{session} #[fg=#2f7d32,bold][ hx]{pipe_workspace}{command_cpu} #[fg=#9a5a00,bold][demo] #[fg=#1e66f5,bold]YZX {command_version} \" // {datetime}"
+            "format_right  \" #[fg=#7c3f97,bold]{session} #[fg=#2f7d32,bold][ hx]{pipe_workspace}{command_cpu} #[fg=#9a5a00,bold][demo] #[fg=#1e66f5,bold]YZX {command_version} \" // {datetime}"
         ));
         assert!(rendered.contains(r##"mode_normal  "#[bg=#cfe8d4,fg=#1f5f32,bold] NORMAL ""##));
         assert!(rendered.contains(
