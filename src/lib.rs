@@ -3196,7 +3196,7 @@ pub fn render_codex_usage_summary_for_periods(
             parts.push(part);
         }
     }
-    parts.join(" | ")
+    parts.join(" ")
 }
 
 pub fn render_windowed_agent_usage_status_widget(
@@ -3290,7 +3290,7 @@ fn render_codex_usage_window(
             }
         }
     }
-    Some(pieces.join(" "))
+    Some(pieces.join("|"))
 }
 
 fn render_windowed_agent_usage_window(
@@ -4098,15 +4098,15 @@ MemAvailable:   250000 kB
 
         assert_eq!(
             render_codex_usage_status_widget(&facts, AgentUsageDisplay::Quota),
-            " [codex 30m/5h 88% | 0h/7d 100%]"
+            " [codex 30m/5h|88% 0h/7d|100%]"
         );
         assert_eq!(
             render_codex_usage_status_widget(&facts, AgentUsageDisplay::Token),
-            " [codex 30m/5h 1.23M | 0h/7d 345M]"
+            " [codex 30m/5h|1.23M 0h/7d|345M]"
         );
         assert_eq!(
             render_codex_usage_status_widget(&facts, AgentUsageDisplay::Both),
-            " [codex 30m/5h 1.23M 88% | 0h/7d 345M 100%]"
+            " [codex 30m/5h|1.23M|88% 0h/7d|345M|100%]"
         );
     }
 
@@ -4121,7 +4121,7 @@ MemAvailable:   250000 kB
 
         assert_eq!(
             render_codex_usage_status_widget(&facts, AgentUsageDisplay::Quota),
-            " [codex 5h n/a]"
+            " [codex 5h|n/a]"
         );
         assert_eq!(
             render_codex_usage_status_widget(
@@ -4172,7 +4172,7 @@ esac
         })
         .unwrap();
 
-        assert_eq!(text, " [codex 3h/5h 138M 49% | 4d/7d 1.34B 80%]");
+        assert_eq!(text, " [codex 3h/5h|138M|49% 4d/7d|1.34B|80%]");
         assert_eq!(
             read_codex_usage_shared_cache_value(&cache_path)
                 .unwrap()
