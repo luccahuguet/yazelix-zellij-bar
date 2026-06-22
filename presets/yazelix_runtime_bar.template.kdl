@@ -30,6 +30,12 @@ __YAZELIX_RUNTIME_TAB_RENAME__
 
     pipe_workspace_format "__YAZELIX_RUNTIME_PIPE_WORKSPACE_FORMAT__"
 
+    command_term_command "__YAZELIX_RUNTIME_WIDGET_BIN__ term"
+    command_term_format "{stdout}"
+    command_term_rendermode "raw"
+    command_term_hideonemptystdout "true"
+    command_term_interval "3600"
+
     command_claude_usage_command "__YAZELIX_RUNTIME_WIDGET_BIN__ claude --display __YAZELIX_RUNTIME_CLAUDE_USAGE_DISPLAY__ --periods __YAZELIX_RUNTIME_CLAUDE_USAGE_PERIODS____YAZELIX_RUNTIME_CLAUDE_USAGE_WIDGET_ARGS__"
     command_claude_usage_format "__YAZELIX_RUNTIME_COMMAND_CLAUDE_USAGE_FORMAT__"
     command_claude_usage_rendermode "raw"

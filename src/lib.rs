@@ -24,6 +24,7 @@ pub const COMMAND_CODEX_USAGE: &str = "{command_codex_usage}";
 pub const COMMAND_OPENCODE_GO_USAGE: &str = "{command_opencode_go_usage}";
 pub const COMMAND_CPU: &str = "{command_cpu}";
 pub const COMMAND_RAM: &str = "{command_ram}";
+pub const COMMAND_TERM: &str = "{command_term}";
 pub const COMMAND_VERSION: &str = "{command_version}";
 pub const COMMAND_YAZELIX_TABS: &str = "{command_yazelix_tabs}";
 pub const TAB_LABEL_MODE_FULL: &str = "full";
@@ -3552,10 +3553,7 @@ fn render_widget_with_style(
         WIDGET_SESSION => Ok(inline(style.session, "{session}".to_string())),
         WIDGET_EDITOR => Ok(inline(style.widget, format!(" {}", request.editor_label))),
         WIDGET_SHELL => Ok(inline(style.widget, format!("❯{}", request.shell_label))),
-        WIDGET_TERM => Ok(inline(
-            style.widget,
-            format!(" {}", request.terminal_label),
-        )),
+        WIDGET_TERM => Ok(command(style.widget, COMMAND_TERM)),
         WIDGET_WORKSPACE => Ok(PIPE_WORKSPACE.to_string()),
         WIDGET_CLAUDE_USAGE => Ok(command(style.usage, COMMAND_CLAUDE_USAGE)),
         WIDGET_CODEX_USAGE => Ok(command(style.usage, COMMAND_CODEX_USAGE)),
@@ -3669,7 +3667,7 @@ mod tests {
 
         assert_eq!(
             rendered,
-            " #[fg=#ff0088,bold]{session} #[fg=#6c7086,bold]• #[fg=#00ff88,bold] hx #[fg=#6c7086,bold]• #[fg=#00ff88,bold]❯nu #[fg=#6c7086,bold]• #[fg=#00ff88,bold] ghostty #[fg=#6c7086,bold]• #[fg=#bb88ff,bold]{command_codex_usage} #[fg=#6c7086,bold]• #[fg=#ff6600]{command_cpu} #[fg=#6c7086,bold]• #[fg=#ff6600]{command_ram}"
+            " #[fg=#ff0088,bold]{session} #[fg=#6c7086,bold]• #[fg=#00ff88,bold] hx #[fg=#6c7086,bold]• #[fg=#00ff88,bold]❯nu #[fg=#6c7086,bold]• #[fg=#00ff88,bold]{command_term} #[fg=#6c7086,bold]• #[fg=#bb88ff,bold]{command_codex_usage} #[fg=#6c7086,bold]• #[fg=#ff6600]{command_cpu} #[fg=#6c7086,bold]• #[fg=#ff6600]{command_ram}"
         );
     }
 
@@ -3800,6 +3798,12 @@ mod tests {
         assert!(rendered.contains(
             r##"pipe_workspace_format " #[fg=#6c7086,bold]• #[fg=#00ff88,bold]{output}""##
         ));
+        assert!(
+            rendered
+                .contains(r#"command_term_command "/runtime/bin/yazelix_zellij_bar_widget term""#)
+        );
+        assert!(rendered.contains(r##"command_term_format "{stdout}""##));
+        assert!(rendered.contains(r##"command_term_rendermode "raw""##));
         assert!(!rendered.contains("command_yazelix_tabs_command"));
         assert!(!rendered.contains("command_workspace_command"));
         assert!(!rendered.contains("command_cursor"));

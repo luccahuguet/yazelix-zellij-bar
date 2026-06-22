@@ -2,6 +2,9 @@ use std::env;
 use std::path::Path;
 use std::process;
 
+const SESSION_TERMINAL_ENV: &str = "YAZELIX_SESSION_TERMINAL";
+const UNKNOWN_SESSION_TERMINAL: &str = "unknown";
+
 fn main() {
     match run(env::args().skip(1).collect()) {
         Ok(output) => println!("{output}"),
@@ -15,7 +18,7 @@ fn main() {
 fn run(args: Vec<String>) -> Result<String, String> {
     let Some((command, rest)) = args.split_first() else {
         return Err(
-            "expected command: claude, codex, cpu, opencode_go, ram, tabs, version, or render-yazelix-runtime"
+            "expected command: claude, codex, cpu, opencode_go, ram, tabs, term, version, or render-yazelix-runtime"
                 .to_string(),
         );
     };
@@ -28,7 +31,40 @@ fn run(args: Vec<String>) -> Result<String, String> {
         "version" => run_version(rest),
         "cpu" => run_cpu_usage(rest),
         "ram" => run_ram_usage(rest),
+        "term" => run_term(rest),
         _ => Err(format!("unknown widget command: {command}")),
+    }
+}
+
+fn run_term(args: &[String]) -> Result<String, String> {
+    if !args.is_empty() {
+        return Err("term usage: yazelix_zellij_bar_widget term".to_string());
+    }
+    Ok(render_term_from_env(|key| env::var(key).ok()))
+}
+
+fn render_term_from_env<F>(get_env: F) -> String
+where
+    F: FnMut(&str) -> Option<String>,
+{
+    format!(" {}", session_terminal_label_from_env(get_env))
+}
+
+fn session_terminal_label_from_env<F>(mut get_env: F) -> String
+where
+    F: FnMut(&str) -> Option<String>,
+{
+    get_env(SESSION_TERMINAL_ENV)
+        .and_then(|value| normalize_session_terminal_label(&value))
+        .unwrap_or_else(|| UNKNOWN_SESSION_TERMINAL.to_string())
+}
+
+fn normalize_session_terminal_label(raw: &str) -> Option<String> {
+    let trimmed = raw.trim().to_ascii_lowercase();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
     }
 }
 
@@ -687,6 +723,37 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("invalid_widget_separator"));
+    }
+
+    // Regression: the terminal widget follows the running Zellij session env instead of a
+    // terminal label baked into a shared generated layout.
+    #[test]
+    fn term_command_renders_session_terminal_env() {
+        let output = render_term_from_env(|key| {
+            (key == SESSION_TERMINAL_ENV).then_some(" Mars ".to_string())
+        });
+
+        assert_eq!(output, " mars");
+    }
+
+    // Defends: missing or blank terminal ids render visibly instead of leaking a label from
+    // another Yazelix window's generated config.
+    #[test]
+    fn term_command_renders_unknown_when_session_terminal_env_is_empty() {
+        let blank =
+            render_term_from_env(|key| (key == SESSION_TERMINAL_ENV).then_some("  ".to_string()));
+        let missing = render_term_from_env(|_| None);
+
+        assert_eq!(blank, " unknown");
+        assert_eq!(missing, " unknown");
+    }
+
+    // Defends: the CLI keeps `term` as a no-argument command for zjstatus command-widget wiring.
+    #[test]
+    fn term_command_rejects_extra_args() {
+        let error = run_term(&["extra".to_string()]).unwrap_err();
+
+        assert_eq!(error, "term usage: yazelix_zellij_bar_widget term");
     }
 
     // Defends: the integrated tab-strip command reads the same window-local status cache as the existing bar widgets.
