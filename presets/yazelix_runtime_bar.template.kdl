@@ -1,5 +1,5 @@
 plugin location="__YAZELIX_RUNTIME_ZJSTATUS_PLUGIN_URL__" {
-    format_left   "{mode} {tabs}"
+    format_left   "{tabs}"
     format_center ""
     format_right  "__YAZELIX_RUNTIME_WIDGET_TRAY____YAZELIX_RUNTIME_CUSTOM_TEXT____YAZELIX_RUNTIME_VERSION_SEGMENT__" // {datetime}
     format_hide_on_overlength "true"
@@ -7,11 +7,6 @@ plugin location="__YAZELIX_RUNTIME_ZJSTATUS_PLUGIN_URL__" {
     format_space  ""
 
     border_enabled  "false"
-
-    mode_normal  "__YAZELIX_RUNTIME_MODE_NORMAL__ NORMAL "
-    mode_tmux    "__YAZELIX_RUNTIME_MODE_TMUX__ TMUX "
-    mode_session "__YAZELIX_RUNTIME_MODE_SESSION__ SESSION "
-    mode_scroll  "__YAZELIX_RUNTIME_MODE_SCROLL__ SCROLL "
 
 __YAZELIX_RUNTIME_TAB_LABELS__
     tab_separator ""

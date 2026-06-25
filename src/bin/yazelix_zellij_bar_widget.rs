@@ -668,7 +668,8 @@ mod tests {
         assert!(plugin_block.contains(
             r##"pipe_workspace_format " #[fg=#6c7086,bold]• #[fg=#00ff88,bold]{output}""##
         ));
-        assert!(plugin_block.contains(r#"format_left   "{mode} {tabs}""#));
+        assert!(plugin_block.contains(r#"format_left   "{tabs}""#));
+        assert!(!plugin_block.contains("{mode}"));
         assert!(!plugin_block.contains("command_yazelix_tabs_command"));
         assert!(!plugin_block.contains("command_workspace_command"));
         assert!(plugin_block.contains(

@@ -1,7 +1,7 @@
 // These snippets require the full Yazelix runtime and its cached status helpers.
 // Workspace, version, and integrated tabs are Yazelix-only. Other widgets are bar-owned commands.
 
-format_left "{mode} {command_yazelix_tabs}"
+format_left "{command_yazelix_tabs}"
 
 command_yazelix_tabs_command "yazelix_zellij_bar_widget tabs --appearance dark --mode full"
 command_yazelix_tabs_format "{stdout}"

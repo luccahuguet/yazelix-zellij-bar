@@ -3789,7 +3789,8 @@ mod tests {
         assert!(rendered.contains(
             "format_right  \" #[fg=#ff0088,bold]{session} #[fg=#6c7086,bold]• #[fg=#00ff88,bold] hx{pipe_workspace} #[fg=#6c7086,bold]• #[fg=#ff6600]{command_cpu} #[fg=#6c7086,bold]• #[fg=#ffff00,bold][demo] #[fg=#6c7086,bold]• #[fg=#00ccff,bold]YZX {command_version} \" // {datetime}"
         ));
-        assert!(rendered.contains(r#"format_left   "{mode} {tabs}""#));
+        assert!(rendered.contains(r#"format_left   "{tabs}""#));
+        assert!(!rendered.contains("{mode}"));
         assert!(rendered.contains(r##"tab_normal   "#[fg=#ffff00] [{index}] ""##));
         assert!(rendered.contains(
             r##"tab_normal_bell "#[fg=#ff0088,bold] [{index}] {sync_indicator}{fullscreen_indicator}""##
@@ -3870,7 +3871,7 @@ mod tests {
         assert!(rendered.contains(
             "format_right  \" #[fg=#7c3f97,bold]{session} #[fg=#8c8fa1,bold]• #[fg=#2f7d32,bold] hx{pipe_workspace} #[fg=#8c8fa1,bold]• #[fg=#a24f00]{command_cpu} #[fg=#8c8fa1,bold]• #[fg=#9a5a00,bold][demo] #[fg=#8c8fa1,bold]• #[fg=#1e66f5,bold]YZX {command_version} \" // {datetime}"
         ));
-        assert!(rendered.contains(r##"mode_normal  "#[bg=#cfe8d4,fg=#1f5f32,bold] NORMAL ""##));
+        assert!(!rendered.contains("mode_normal"));
         assert!(rendered.contains(
             r##"tab_active   "#[bg=#ccd0da,fg=#303446,bold] [{index}] {floating_indicator}""##
         ));
