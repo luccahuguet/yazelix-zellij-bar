@@ -1,12 +1,11 @@
 // These snippets require the full Yazelix runtime and its cached status helpers.
-// Workspace, version, and integrated tabs are Yazelix-only. Other widgets are bar-owned commands.
+// Workspace and version are Yazelix-only. Other widgets are bar-owned commands.
 
-format_left "{command_yazelix_tabs}"
+format_left "{tabs}"
 
-command_yazelix_tabs_command "yazelix_zellij_bar_widget tabs --appearance dark --mode full"
-command_yazelix_tabs_format "{stdout}"
-command_yazelix_tabs_rendermode "dynamic"
-command_yazelix_tabs_interval "1"
+tab_activity_pipe_name "pipe_tab_activity"
+tab_activity_busy_marker "·"
+tab_activity_alert_marker "✓"
 
 format_right "#[fg=#ff0088,bold]{session}{pipe_workspace}{command_claude_usage}{command_codex_usage}{command_opencode_go_usage}{command_cpu}{command_ram} #[fg=#00ccff,bold]YZX {command_version} "
 

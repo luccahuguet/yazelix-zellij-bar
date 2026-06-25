@@ -26,7 +26,6 @@ pub const COMMAND_CPU: &str = "{command_cpu}";
 pub const COMMAND_RAM: &str = "{command_ram}";
 pub const COMMAND_TERM: &str = "{command_term}";
 pub const COMMAND_VERSION: &str = "{command_version}";
-pub const COMMAND_YAZELIX_TABS: &str = "{command_yazelix_tabs}";
 pub const TAB_LABEL_MODE_FULL: &str = "full";
 pub const TAB_LABEL_MODE_COMPACT: &str = "compact";
 pub const WIDGET_FRAME_NONE: &str = "none";
@@ -3796,6 +3795,9 @@ mod tests {
             r##"tab_normal_bell "#[fg=#ff0088,bold] [{index}] {sync_indicator}{fullscreen_indicator}""##
         ));
         assert!(rendered.contains(r##"tab_bell_indicator       """##));
+        assert!(rendered.contains(r##"tab_activity_pipe_name   "pipe_tab_activity""##));
+        assert!(rendered.contains(r##"tab_activity_busy_marker "·""##));
+        assert!(rendered.contains(r##"tab_activity_alert_marker "✓""##));
         assert!(rendered.contains(
             r##"pipe_workspace_format " #[fg=#6c7086,bold]• #[fg=#00ff88,bold]{output}""##
         ));

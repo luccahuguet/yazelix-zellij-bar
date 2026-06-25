@@ -65,7 +65,7 @@ The optional provider widgets only need their own upstream facts:
 
 None of those widget commands require Yazelix runtime paths, `yzx_control`, or a Yazelix session cache
 
-The full Yazelix runtime keeps zjstatus `{tabs}` as the integrated tab strip so Zellij owns live tab identity, focus, click handling, and bell events. `yazelix_zellij_bar_widget tabs` is a renderer probe for Yazelix activity snapshots, not the default tab strip
+The full Yazelix runtime keeps zjstatus `{tabs}` as the integrated tab strip so Zellij owns live tab identity, focus, click handling, and bell events. Its pinned zjstatus renders Yazelix activity markers from `pipe_tab_activity` without changing native tab names. `yazelix_zellij_bar_widget tabs` is a renderer probe for Yazelix activity snapshots, not the default tab strip
 
 ## Optional Command Widgets
 
@@ -78,7 +78,7 @@ The main customization knobs are:
 - mode and tab format keys for labels and tab display
 - `command_*_command`, `command_*_format`, and `command_*_interval` for custom command widgets
 
-Generic zjstatus placeholders such as `{mode}`, `{tabs}`, `{session}`, and `{datetime}` work without Yazelix. The packaged tab formats also style upstream zjstatus bell notifications without adding marker text, so `[!]` remains reserved for Yazelix activity. To add a host/status command widget, start from:
+Generic zjstatus placeholders such as `{mode}`, `{tabs}`, `{session}`, and `{datetime}` work without Yazelix. The integrated Yazelix runtime additionally configures `tab_activity_pipe_name` for activity markers. To add a host/status command widget, start from:
 
 ```kdl
 format_right "#[fg=#ff0088,bold]{session} {datetime} {command_host} #[fg=#00ccff,bold]yzx bar "
@@ -138,7 +138,7 @@ The Rust crate also exposes renderer helpers for embedders that want Yazelix-sty
 - `render_zjstatus_bar_segments` for editor, shell, terminal, custom text, and widget-tray placeholders
 - `render_zjstatus_tab_label_formats` for full and compact tab labels
 - `render_tab_activity_label` and `render_tab_activity_name` for plain `idle`, `busy`, or `alert` tab activity text
-- `render_native_tab_strip` and `render_status_cache_tab_strip_widget` for the integrated Yazelix tab strip from all-tab activity facts
+- `render_native_tab_strip` and `render_status_cache_tab_strip_widget` for diagnostic or standalone tab text from all-tab activity facts
 - `render_yazelix_runtime_plugin_block` for the full integrated Yazelix zjstatus plugin block from typed runtime config, `appearance_mode`, and the child-owned runtime KDL template
 - `render_codex_usage_status_widget` for cached Codex usage facts
 - `render_windowed_agent_usage_status_widget` for Claude, OpenCode Go, or another cached windowed provider
@@ -173,9 +173,9 @@ Workspace remains Yazelix-only because it is derived from Yazelix session facts 
 
 CPU, RAM, Codex, Claude, and OpenCode Go widgets are bar-owned standalone commands. Yazelix-only integration for those widgets is limited to generated layout wiring and default cache-path derivation from the full runtime
 
-The full Yazelix runtime consumes this child repo for integrated zjstatus plugin rendering and the integrated standalone package. The child repo packages `zjstatus.wasm` from its pinned `zjstatus` flake input so the package does not require manual artifact copying. The pinned zjstatus supports native bell tab formatting; Yazelix AI activity markers remain separate tab-name decoration until a future event-driven activity bridge exists
+The full Yazelix runtime consumes this child repo for integrated zjstatus plugin rendering and the integrated standalone package. The child repo packages `zjstatus.wasm` from its pinned `zjstatus` flake input so the package does not require manual artifact copying. The pinned zjstatus supports native bell tab formatting and Yazelix activity markers from `pipe_tab_activity`; tab names remain native Zellij state
 
-`yazelix_zellij_bar_widget render-yazelix-runtime --json <config>` accepts typed runtime config from Yazelix and returns the complete child-owned zjstatus plugin block rendered from `yazelix_runtime_bar.template.kdl`. The runtime config includes `appearance_mode` so the child can own dark and light status-bar palettes. The integrated runtime template uses zjstatus `{tabs}` for live Zellij tab state, including upstream terminal-bell styling; the standalone `tabs` widget is a renderer probe for the activity snapshot contract, not the default tab strip. Yazelix core still owns workspace facts, session config, pane-orchestrator activity snapshots, and runtime path resolution; this repo owns widget rendering, tab formatting, activity-label text, pipe/command-widget KDL, and the generic zjstatus plugin shape
+`yazelix_zellij_bar_widget render-yazelix-runtime --json <config>` accepts typed runtime config from Yazelix and returns the complete child-owned zjstatus plugin block rendered from `yazelix_runtime_bar.template.kdl`. The runtime config includes `appearance_mode` so the child can own dark and light status-bar palettes. The integrated runtime template uses zjstatus `{tabs}` for live Zellij tab state, upstream terminal-bell styling, and pipe-fed Yazelix activity markers; the standalone `tabs` widget is a renderer probe for the activity snapshot contract, not the default tab strip. Yazelix core still owns workspace facts, session config, pane-orchestrator activity snapshots, and runtime path resolution; this repo owns widget rendering, tab formatting, activity-label text, pipe/command-widget KDL, and the generic zjstatus plugin shape
 
 When the main Yazelix repo forwards `#yazelix_zellij_bar`, it may make this repo's `zjstatus` input follow Yazelix's own `zjstatus` pin. Standalone users get the pin recorded in this repo's `flake.lock`
 

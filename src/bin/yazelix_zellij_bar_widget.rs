@@ -665,6 +665,9 @@ mod tests {
             r##"tab_normal_bell "#[fg=#ff0088,bold] [{index}] {sync_indicator}{fullscreen_indicator}""##
         ));
         assert!(plugin_block.contains(r##"tab_bell_indicator       """##));
+        assert!(plugin_block.contains(r##"tab_activity_pipe_name   "pipe_tab_activity""##));
+        assert!(plugin_block.contains(r##"tab_activity_busy_marker "·""##));
+        assert!(plugin_block.contains(r##"tab_activity_alert_marker "✓""##));
         assert!(plugin_block.contains(
             r##"pipe_workspace_format " #[fg=#6c7086,bold]• #[fg=#00ff88,bold]{output}""##
         ));
