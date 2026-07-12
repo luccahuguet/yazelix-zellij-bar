@@ -911,7 +911,7 @@ impl WindowedAgentUsageFacts {
     }
 }
 
-pub const CODEX_USAGE_CACHE_SCHEMA_VERSION: i64 = 2;
+pub const CODEX_USAGE_CACHE_SCHEMA_VERSION: i64 = 3;
 pub const CLAUDE_USAGE_CACHE_SCHEMA_VERSION: i64 = 1;
 pub const OPENCODE_GO_USAGE_CACHE_SCHEMA_VERSION: i64 = 1;
 pub const CODEX_USAGE_LOCK_STALE_AFTER_SECONDS: u64 = 300;
@@ -4316,7 +4316,7 @@ esac
         let _ = std::fs::remove_dir_all(temp);
     }
 
-    // Defends: Yazelix runtime commands can derive provider cache files from the window status-cache env without calling yzx_control.
+    // Defends: corrected duration-based Codex facts do not share a cache namespace with legacy position-based writers in open sessions.
     // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
     #[test]
     fn agent_usage_cache_paths_derive_from_status_cache_path() {
@@ -4330,7 +4330,7 @@ esac
                 CODEX_USAGE_CACHE_SCHEMA_VERSION,
             ),
             Some(std::path::PathBuf::from(
-                "/state/sessions/agent_usage/codex_usage_cache_v2.json"
+                "/state/sessions/agent_usage/codex_usage_cache_v3.json"
             ))
         );
     }
