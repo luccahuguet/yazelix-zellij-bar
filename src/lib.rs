@@ -918,6 +918,8 @@ pub const CODEX_USAGE_LOCK_STALE_AFTER_SECONDS: u64 = 300;
 pub const CLAUDE_USAGE_LOCK_STALE_AFTER_SECONDS: u64 = 300;
 pub const OPENCODE_GO_USAGE_LOCK_STALE_AFTER_SECONDS: u64 = 300;
 pub const OPENCODE_GO_PROVIDER_ID: &str = "opencode-go";
+pub const CODEX_FIVE_HOUR_WINDOW_SECONDS: u64 = 5 * 60 * 60;
+pub const CODEX_WEEKLY_WINDOW_SECONDS: u64 = 7 * 24 * 60 * 60;
 pub const OPENCODE_GO_FIVE_HOUR_SECONDS: u64 = 5 * 60 * 60;
 pub const OPENCODE_GO_WEEK_SECONDS: u64 = 7 * 24 * 60 * 60;
 pub const OPENCODE_GO_MONTH_SECONDS: u64 = 30 * 24 * 60 * 60;
@@ -1290,7 +1292,9 @@ pub fn refresh_codex_usage_shared_cache(
     let mut facts = collect_codex_usage_facts(path_var, timeout, quota_backoff_until.is_none());
     let quota_probe_failed = quota_backoff_until.is_none() && !facts.has_quota();
     preserve_previous_codex_window_tokens(&mut facts, previous_facts.as_ref());
-    preserve_previous_codex_window_quota(&mut facts, previous_facts.as_ref(), now);
+    if quota_probe_failed || quota_backoff_until.is_some() {
+        preserve_previous_codex_window_quota(&mut facts, previous_facts.as_ref(), now);
+    }
 
     let mut entry = serde_json::Map::new();
     entry.insert(
@@ -2287,12 +2291,28 @@ pub fn claude_usage_quota_backoff_until(path: &std::path::Path, now: u64) -> Opt
 fn codex_usage_facts_are_complete(facts: &WindowedAgentUsageFacts) -> bool {
     facts.five_hour_tokens.is_some()
         && facts.weekly_tokens.is_some()
-        && facts.five_hour_remaining_percent.is_some()
-        && facts.weekly_remaining_percent.is_some()
-        && facts.five_hour_reset_at_unix_seconds.is_some()
-        && facts.weekly_reset_at_unix_seconds.is_some()
-        && facts.five_hour_window_seconds.is_some()
-        && facts.weekly_window_seconds.is_some()
+        && facts.has_quota()
+        && codex_quota_window_is_complete(
+            facts.five_hour_remaining_percent,
+            facts.five_hour_reset_at_unix_seconds,
+            facts.five_hour_window_seconds,
+        )
+        && codex_quota_window_is_complete(
+            facts.weekly_remaining_percent,
+            facts.weekly_reset_at_unix_seconds,
+            facts.weekly_window_seconds,
+        )
+}
+
+fn codex_quota_window_is_complete(
+    remaining_percent: Option<u64>,
+    reset_at_unix_seconds: Option<u64>,
+    window_seconds: Option<u64>,
+) -> bool {
+    matches!(
+        (remaining_percent, reset_at_unix_seconds, window_seconds),
+        (Some(_), Some(_), Some(_)) | (None, None, None)
+    )
 }
 
 fn claude_usage_facts_are_complete(facts: &WindowedAgentUsageFacts) -> bool {
@@ -3043,31 +3063,42 @@ fn codex_quota_from_official_json(value: &serde_json::Value) -> WindowedAgentUsa
     let Some(official) = value.get("official_codex") else {
         return WindowedAgentUsageFacts::default();
     };
-    WindowedAgentUsageFacts {
-        five_hour_remaining_percent: official
-            .get("primary_used_percent")
+
+    let mut facts = WindowedAgentUsageFacts::default();
+    for name in ["primary", "secondary"] {
+        let Some(remaining_percent) = official
+            .get(format!("{name}_used_percent"))
             .and_then(serde_json::Value::as_f64)
-            .map(remaining_percent_from_used),
-        weekly_remaining_percent: official
-            .get("secondary_used_percent")
-            .and_then(serde_json::Value::as_f64)
-            .map(remaining_percent_from_used),
-        five_hour_reset_at_unix_seconds: official
-            .get("primary_resets_at")
-            .and_then(serde_json::Value::as_u64),
-        weekly_reset_at_unix_seconds: official
-            .get("secondary_resets_at")
-            .and_then(serde_json::Value::as_u64),
-        five_hour_window_seconds: official
-            .get("primary_window_mins")
+            .map(remaining_percent_from_used)
+        else {
+            continue;
+        };
+        let Some(window_seconds) = official
+            .get(format!("{name}_window_mins"))
             .and_then(serde_json::Value::as_u64)
-            .and_then(window_minutes_to_seconds),
-        weekly_window_seconds: official
-            .get("secondary_window_mins")
-            .and_then(serde_json::Value::as_u64)
-            .and_then(window_minutes_to_seconds),
-        ..WindowedAgentUsageFacts::default()
+            .and_then(window_minutes_to_seconds)
+        else {
+            continue;
+        };
+        let reset_at = official
+            .get(format!("{name}_resets_at"))
+            .and_then(serde_json::Value::as_u64);
+
+        match window_seconds {
+            CODEX_FIVE_HOUR_WINDOW_SECONDS if facts.five_hour_remaining_percent.is_none() => {
+                facts.five_hour_remaining_percent = Some(remaining_percent);
+                facts.five_hour_reset_at_unix_seconds = reset_at;
+                facts.five_hour_window_seconds = Some(window_seconds);
+            }
+            CODEX_WEEKLY_WINDOW_SECONDS if facts.weekly_remaining_percent.is_none() => {
+                facts.weekly_remaining_percent = Some(remaining_percent);
+                facts.weekly_reset_at_unix_seconds = reset_at;
+                facts.weekly_window_seconds = Some(window_seconds);
+            }
+            _ => {}
+        }
     }
+    facts
 }
 
 fn claude_quota_from_official_json(value: &serde_json::Value) -> WindowedAgentUsageFacts {
@@ -3272,11 +3303,7 @@ fn render_codex_usage_window(
             pieces.push(format_agent_usage_token_count(tokens?));
         }
         AgentUsageDisplay::Quota => {
-            pieces.push(match remaining_percent {
-                Some(percent) => format_quota_percent(percent),
-                None if tokens.is_some() => "n/a".to_string(),
-                None => return None,
-            });
+            pieces.push(format_quota_percent(remaining_percent?));
         }
         AgentUsageDisplay::Both => {
             if let Some(tokens) = tokens {
@@ -4117,7 +4144,7 @@ MemAvailable:   250000 kB
         );
     }
 
-    // Regression: Codex quota mode renders n/a for token-only windows but hides fully missing windows.
+    // Regression: Codex quota mode hides token-only windows instead of presenting them as quota limits.
     // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
     #[test]
     fn codex_usage_widget_handles_partial_quota_facts() {
@@ -4128,7 +4155,11 @@ MemAvailable:   250000 kB
 
         assert_eq!(
             render_codex_usage_status_widget(&facts, AgentUsageDisplay::Quota),
-            " [codex 5h|n/a]"
+            ""
+        );
+        assert_eq!(
+            render_codex_usage_status_widget(&facts, AgentUsageDisplay::Both),
+            " [codex 5h|42k]"
         );
         assert_eq!(
             render_codex_usage_status_widget(
@@ -4140,6 +4171,7 @@ MemAvailable:   250000 kB
     }
 
     // Defends: the standalone Codex command owns tokenusage probing, cache writes, reset-window labels, and rendering without Yazelix runtime paths.
+    // Regression: window durations identify quota periods, and a weekly-only response replaces stale five-hour/secondary slots.
     // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
     #[cfg(unix)]
     #[test]
@@ -4186,6 +4218,52 @@ esac
                 .pointer("/codex/status")
                 .and_then(serde_json::Value::as_str),
             Some("ok")
+        );
+
+        write_tokenusage_provider_script(
+            &bin_dir,
+            r#"#!/usr/bin/env sh
+case " $* " in
+*" --official-limits "*)
+  printf '%s\n' '{"official_codex":{"primary_used_percent":1.0,"primary_resets_at":605800,"primary_window_mins":10080}}'
+  ;;
+*)
+if [ "$1" = "blocks" ]; then
+  printf '%s\n' '{"blocks":[{"isActive":true,"totals":{"total_tokens":138456789}}]}'
+elif [ "$1" = "weekly" ]; then
+  printf '%s\n' '{"weekly":[{"totals":{"total_tokens":1337000000}}]}'
+else
+  exit 1
+fi
+  ;;
+esac
+"#,
+        );
+        let text = codex_usage_widget_text(CodexUsageWidgetOptions {
+            cache_path: &cache_path,
+            path_var: Some(bin_dir.as_os_str()),
+            now_unix_seconds: 2_000,
+            max_age_seconds: 0,
+            error_backoff_seconds: 1_800,
+            timeout: std::time::Duration::from_secs(5),
+            display: AgentUsageDisplay::Quota,
+            periods: &[AgentUsagePeriod::FiveHour, AgentUsagePeriod::Weekly],
+        })
+        .unwrap();
+
+        assert_eq!(text, " [codex 0h/7d|99%]");
+        let cache = read_codex_usage_shared_cache_value(&cache_path).unwrap();
+        assert_eq!(
+            cache
+                .pointer("/codex/five_hour_remaining_percent")
+                .and_then(serde_json::Value::as_u64),
+            None
+        );
+        assert_eq!(
+            cache
+                .pointer("/codex/weekly_remaining_percent")
+                .and_then(serde_json::Value::as_u64),
+            Some(99)
         );
         let _ = std::fs::remove_dir_all(temp);
     }
