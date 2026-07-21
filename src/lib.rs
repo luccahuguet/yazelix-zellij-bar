@@ -1857,16 +1857,6 @@ struct SystemUsageCache {
     ram_percent: Option<u64>,
 }
 
-struct SystemUsageCacheLock {
-    path: std::path::PathBuf,
-}
-
-impl Drop for SystemUsageCacheLock {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
-}
-
 pub fn current_cpu_usage_widget_text() -> String {
     current_system_usage_widget_text(SystemUsageWidget::Cpu, current_unix_millis())
 }
@@ -1919,15 +1909,17 @@ fn refresh_system_usage_cache_if_needed(
     Some(cache)
 }
 
-fn acquire_system_usage_cache_lock(cache_path: &std::path::Path) -> Option<SystemUsageCacheLock> {
+fn acquire_system_usage_cache_lock(cache_path: &std::path::Path) -> Option<std::fs::File> {
     let lock_path = system_usage_cache_lock_path(cache_path);
     std::fs::create_dir_all(lock_path.parent()?).ok()?;
-    std::fs::OpenOptions::new()
+    let file = std::fs::OpenOptions::new()
         .write(true)
-        .create_new(true)
+        .create(true)
+        .truncate(false)
         .open(&lock_path)
         .ok()?;
-    Some(SystemUsageCacheLock { path: lock_path })
+    file.try_lock().ok()?;
+    Some(file)
 }
 
 fn system_usage_cache_lock_path(cache_path: &std::path::Path) -> std::path::PathBuf {
@@ -3992,12 +3984,15 @@ MemAvailable:   250000 kB
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    // Regression: concurrent command-widget bursts must let one process own sampler refresh.
+    // Regression: abandoned lock files must remain reusable while live samplers stay exclusive.
     // Strength: defect=2 behavior=2 resilience=2 cost=1 uniqueness=2 total=9/10
     #[test]
-    fn system_usage_cache_lock_is_exclusive() {
+    fn system_usage_cache_lock_recovers_and_stays_exclusive() {
         let dir = temp_test_dir("system_usage_lock");
         let path = dir.join("system_usage_cache_v1.json");
+        let lock_path = system_usage_cache_lock_path(&path);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(lock_path, []).unwrap();
 
         let first = acquire_system_usage_cache_lock(&path).expect("first lock");
         assert!(acquire_system_usage_cache_lock(&path).is_none());
